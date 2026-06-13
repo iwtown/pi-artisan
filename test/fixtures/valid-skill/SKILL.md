@@ -2,6 +2,7 @@
 name: test-skill
 slug: test-skill
 version: 1.0.0
+license: MIT
 description: >-
   当用户需要测试质量门控功能时加载。用于验证 pi-artisan 的各项检查是否正常工作。
 tested-models:

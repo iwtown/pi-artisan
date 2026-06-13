@@ -9,6 +9,7 @@
  *   - compatibility: ≤500 chars
  *   - allowed-tools: format check
  *   - tested-models: array format suggestion, result format suggestion
+ *   - license: optional per Agent Skills spec (MIT, Apache-2.0, etc.)
  *   - YAML structure validity
  *   - Trailing newline
  *   - ## Gotchas section: exists, non-empty, no placeholders, actual entries
@@ -118,6 +119,17 @@ export function validateSkillFrontmatter(content: string): ValidationIssue[] {
     }
   } else {
     issues.push({ message: "建议添加 tested-models 字段记录跨模型测试结果（如: [gpt-4, claude-3, deepseek-v4]）" });
+  }
+
+  // ── license (optional, per Agent Skills spec) ──
+  const licenseMatch = fm.match(/^license:\s*(.+)$/m);
+  if (licenseMatch) {
+    const license = licenseMatch[1].trim();
+    if (!/^[a-zA-Z0-9 .-]+$/.test(license)) {
+      issues.push({ message: `license "${license}" 格式异常，建议使用标准 SPDX 标识符（如 MIT、Apache-2.0）` });
+    }
+  } else {
+    issues.push({ message: "建议添加 license 字段（遵循 Agent Skills 标准，如 MIT）" });
   }
 
   // ── YAML structure validity ──

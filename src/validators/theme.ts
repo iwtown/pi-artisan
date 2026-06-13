@@ -47,6 +47,11 @@ export function validateThemeColors(raw: string, filePath?: string): ValidationI
     issues.push({ message: 'Missing or invalid "name" field (must be a string)' });
   }
 
+  // $schema 建议（编辑器自动补全）
+  if (!json["$schema"]) {
+    issues.push({ message: '建议添加 $schema 字段以启用编辑器自动补全和校验' });
+  }
+
   // Filename naming check
   if (filePath) {
     const fileName = basename(filePath, ".json");

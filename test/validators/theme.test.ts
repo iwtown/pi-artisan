@@ -25,7 +25,7 @@ function makeValidColors(): Record<string, string> {
 
 describe("validateThemeColors", () => {
   it("should pass valid theme JSON", () => {
-    const issues = validateThemeColors(JSON.stringify({ name: "dark-theme", colors: makeValidColors() }));
+    const issues = validateThemeColors(JSON.stringify({ name: "dark-theme", "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json", colors: makeValidColors() }));
     expect(issues.length).toBe(0);
   });
 
@@ -41,7 +41,7 @@ describe("validateThemeColors", () => {
   });
 
   it("should accept valid kebab-case filename", () => {
-    const issues = validateThemeColors(JSON.stringify({ name: "t", colors: makeValidColors() }), "my-dark-theme.json");
+    const issues = validateThemeColors(JSON.stringify({ name: "t", "$schema": "...", colors: makeValidColors() }), "my-dark-theme.json");
     const namingIssue = issues.filter((i) => i.message.includes("kebab-case"));
     expect(namingIssue.length).toBe(0);
   });

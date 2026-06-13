@@ -1,5 +1,6 @@
 {
   "name": "valid-test-theme",
+  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "colors": {
     "accent": "#ff0000",
     "border": "#cccccc",
