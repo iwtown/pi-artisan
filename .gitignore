@@ -3,3 +3,10 @@ dist/
 .tmp/
 *.log
 .DS_Store
+*.tsbuildinfo
+coverage/
+plan.md
+review-plan.md
+tmp-debug.ts
+*.tsbuildinfo
+coverage/

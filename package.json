@@ -1,6 +1,6 @@
 {
   "name": "pi-artisan",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "Pi Agent artisan quality gate — manages skills, extensions, prompts, packages, and themes quality for the human-packaged capability track.",
   "keywords": [
     "pi-package",
@@ -21,16 +21,20 @@
     "extensions": [
       "src/index.ts"
     ],
-    "skills": [
-      "scripts/init-skill.sh"
-    ]
+    "skills": []
   },
   "scripts": {
-    "test": "node --check src/index.ts"
+    "test": "vitest run && node --check src/index.ts",
+    "test:watch": "vitest",
+    "typecheck": "npx tsc --noEmit",
+    "build": "npx tsc"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/wtown/pi-artisan.git"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
   }
 }
