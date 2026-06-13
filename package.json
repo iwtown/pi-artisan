@@ -1,0 +1,36 @@
+{
+  "name": "pi-artisan",
+  "version": "1.0.0",
+  "description": "Pi Agent artisan quality gate — manages skills, extensions, prompts, packages, and themes quality for the human-packaged capability track.",
+  "keywords": [
+    "pi-package",
+    "pi-agent",
+    "extension",
+    "meta-validator",
+    "quality-gate",
+    "skill-management"
+  ],
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.78.0",
+    "typebox": "*"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "pi": {
+    "extensions": [
+      "src/index.ts"
+    ],
+    "skills": [
+      "scripts/init-skill.sh"
+    ]
+  },
+  "scripts": {
+    "test": "node --check src/index.ts"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtown/pi-artisan.git"
+  }
+}
