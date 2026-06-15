@@ -22,6 +22,8 @@ export function checkAging(type?: ResourceType): AgingInfo[] {
   for (const r of resources) {
     // Packages don't have a local file to check mtime on
     if (r.type === "package") continue;
+    // Skip disabled (.disabled suffix) and hidden (. prefix) resources
+    if (r.name.startsWith(".") || r.name.endsWith(".disabled")) continue;
 
     try {
       const st = statSync(r.path);

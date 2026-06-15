@@ -14,6 +14,7 @@ import { resolvePath } from "../utils/path.js";
 import { validateSkill } from "../validators/skill.js";
 import { execSync } from "node:child_process";
 import { recordObservation } from "../catalog/observations.js";
+import { runBirthCert } from "../birth/runner.js";
 
 export function registerResourcePublish(pi: ExtensionAPI): void {
   pi.registerCommand("resource-publish", {
@@ -23,6 +24,7 @@ export function registerResourcePublish(pi: ExtensionAPI): void {
 
       // Parse flags
       const isDryRun = parts.includes("--dry-run");
+      const isForce = parts.includes("--force");
       const versionIdx = parts.indexOf("--version");
       const version = versionIdx >= 0 && versionIdx + 1 < parts.length ? parts[versionIdx + 1] : null;
       const changelogIdx = parts.indexOf("--changelog");
@@ -71,7 +73,28 @@ export function registerResourcePublish(pi: ExtensionAPI): void {
 
       ctx.ui?.notify("✅ 校验通过", "info");
 
-      // Step 2: Build publish command
+      // Step 2: Birth certificate (auto-level gate)
+      if (!isForce) {
+        ctx.ui?.notify("📋 正在检查出生证…", "info");
+        const birthResult = runBirthCert("skill", skillMdPath);
+        const autoFailed = birthResult.summary.auto.total - birthResult.summary.auto.passed;
+        if (autoFailed > 0) {
+          const failedItems = birthResult.checks
+            .filter((c) => c.item.level === "auto" && !c.pass)
+            .map((c) => `  - ${c.item.label}: ${c.detail}`);
+          ctx.ui?.notify(`❌ 出生证 ${autoFailed} 项自动检查未通过（使用 --force 跳过出生证检查）:
+${failedItems.join("\n")}`, "warning");
+          ctx.ui?.setWidget("resource-publish", [
+            "❌ 发布中止：出生证未通过",
+            ...failedItems,
+            "💡 修复后重试，或用 --force 跳过出生证",
+          ]);
+          return;
+        }
+        ctx.ui?.notify("✅ 出生证通过", "info");
+      }
+
+      // Step 3: Build publish command
       const publishDir = dirPath.replace(/\/SKILL\.md$/, "");
       let cmd = `skillhub publish "${publishDir}"`;
 
@@ -79,7 +102,7 @@ export function registerResourcePublish(pi: ExtensionAPI): void {
       if (changelog) cmd += ` --changelog "${changelog}"`;
       if (isDryRun) cmd += ` --dry-run`;
 
-      // Step 3: Execute
+      // Step 4: Execute
       ctx.ui?.notify(`📤 ${isDryRun ? "预检" : "发布"}中…\n$ ${cmd}`, "info");
 
       try {

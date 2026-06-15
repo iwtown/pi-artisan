@@ -1,6 +1,6 @@
 {
   "name": "pi-artisan",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "description": "Pi Agent artisan quality gate — manages skills, extensions, prompts, packages, and themes quality for the human-packaged capability track.",
   "keywords": [
     "pi-package",
