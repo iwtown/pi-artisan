@@ -17,6 +17,15 @@ export function generateReport(resource: ResourceInfo, score: QualityScore): str
   lines.push(`\u2502 \u7c7b\u578b: ${padRight(resource.type, 10)} \u6765\u6e90: ${resource.source || "\u2014"}`);
   lines.push(`\u2502 \u8def\u5f84: ${truncatePath(resource.path, 50)}`);
 
+  // Upstream info
+  if (resource.upstream?.source) {
+    const us = resource.upstream;
+    const syncLabel = us.sync ? `sync: ${us.sync}` : "sync: \u2014";
+    const upVer = us.version ? `v${us.version}` : "\u2014";
+    const lastMerge = us.lastMerge ? us.lastMerge.slice(0, 10) : "\u2014";
+    lines.push(`\u2502 \u2191 upstream: ${us.source} (${upVer}, ${syncLabel}, last: ${lastMerge})`);
+  }
+
   const dims = score.dimensions;
   const dimKeys = Object.keys(dims);
   if (dimKeys.length > 0) {
@@ -82,6 +91,7 @@ export function formatMaintainReport(
   agingEntries: { name: string; type: string; version: string; days: number; status: string }[],
   outdatedEntries: { name: string; type: string; local: string; remote: string }[],
   observations: ObservationDisplay[] = [],
+  upstreamEntries: { name: string; type: string; local: string; upstream: string; source: string }[] = [],
 ): string {
   const lines: string[] = [];
   lines.push(`\u250c\u2500 \u7ef4\u62a4\u62a5\u544a ${"\u2500".repeat(42)}\u2510`);
@@ -121,7 +131,17 @@ export function formatMaintainReport(
     }
   }
 
-  if (agingEntries.length === 0 && outdatedEntries.length === 0 && observations.length === 0) {
+  // ── Upstream drift section ──
+  if (upstreamEntries.length > 0) {
+    lines.push(`\u2502${(" ").repeat(50)}\u2502`);
+    lines.push(`\u2502 \U0001f31f upstream \u7248\u672c落\u540e\uff1a`);
+    for (const u of upstreamEntries) {
+      lines.push(`\u2502   ${padRight(u.name, 20)} \u5f53\u524d v${u.local} \u2192 upstream v${u.upstream} (${u.source})`);
+    }
+    lines.push(`\u2502   \u63d0\u793a\uff1a\u8fd0\u884c git merge upstream \u540e\u66f4\u65b0 upstream.version`);
+  }
+
+  if (agingEntries.length === 0 && outdatedEntries.length === 0 && observations.length === 0 && upstreamEntries.length === 0) {
     lines.push(`\u2502 \U0001f49a \u6240\u6709\u8d44\u6e90\u72b6\u6001\u826f\u597d\uff0c\u65e0\u9700\u7ef4\u62a4`);
   }
 

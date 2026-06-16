@@ -22,7 +22,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ValidationIssue } from "../types.js";
-import { parseFrontmatter, extractFieldValue, checkYamlStructure } from "../utils/yaml.js";
+import { parseFrontmatter, extractFieldValue, extractNestedMapping, checkYamlStructure } from "../utils/yaml.js";
 
 // ─────────────────────────────────────────────
 //  Public API
@@ -130,6 +130,22 @@ export function validateSkillFrontmatter(content: string): ValidationIssue[] {
     }
   } else {
     issues.push({ message: "建议添加 license 字段（遵循 Agent Skills 标准，如 MIT）" });
+  }
+
+  // ── upstream block (optional) ──
+  if (fm.includes("upstream:")) {
+    const upstream = extractNestedMapping(fm, "upstream");
+    if (upstream) {
+      if (!upstream["source"]) {
+        issues.push({ message: "upstream.source 必填（例如 skillhub/<slug> 或 github:<user>/<repo>）" });
+      }
+      if (upstream["version"] && !/^\d+\.\d+\.\d+/.test(upstream["version"])) {
+        issues.push({ message: `upstream.version "${upstream["version"]}" 建议使用 semver 格式 (x.y.z)` });
+      }
+      if (upstream["sync"] && !["manual", "auto-patch", "never"].includes(upstream["sync"])) {
+        issues.push({ message: `upstream.sync "${upstream["sync"]}" 无效，可选: manual, auto-patch, never` });
+      }
+    }
   }
 
   // ── YAML structure validity ──

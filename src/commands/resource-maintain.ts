@@ -53,21 +53,32 @@ export function registerResourceMaintain(pi: ExtensionAPI): void {
           nextCheckDate: v.observation!.nextCheckDate,
         }));
 
-      const report = formatMaintainReport(staleEntries, outdatedEntries, observations);
+      const upstreamEntries = versionResults
+        .filter((v) => v.upstreamOutdated && v.upstreamLatest)
+        .map((v) => ({
+          name: v.name,
+          type: v.type,
+          local: v.currentVersion,
+          upstream: v.upstreamLatest!,
+          source: v.upstream?.source || "?",
+        }));
+
+      const report = formatMaintainReport(staleEntries, outdatedEntries, observations, upstreamEntries);
       ctx.ui?.notify(report, "info");
       ctx.ui?.setWidget("resource-maintain", report.split("\n"));
 
       // Suggest upgrade commands
-      if (staleEntries.length > 0 || outdatedEntries.length > 0) {
-        const tips: string[] = [];
-        for (const o of outdatedEntries) {
-          if (o.type === "skill") {
-            tips.push(`💡 skillhub upgrade ${o.name}`);
-          }
+      const tips: string[] = [];
+      for (const o of outdatedEntries) {
+        if (o.type === "skill") {
+          tips.push(`💡 skillhub upgrade ${o.name}`);
         }
-        if (tips.length > 0) {
-          ctx.ui?.notify(tips.join("\n"), "info");
-        }
+      }
+      for (const u of upstreamEntries) {
+        tips.push(`🔄 git pull upstream && bump upstream.version for ${u.name}`);
+      }
+      if (tips.length > 0) {
+        ctx.ui?.notify(tips.join("\n"), "info");
       }
     },
   });

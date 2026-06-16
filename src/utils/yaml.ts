@@ -60,6 +60,42 @@ export function extractFieldValue(fm: string, field: string): string | null {
 }
 
 /**
+ * Extract a nested YAML mapping as key-value pairs.
+ * Matches lines indented under `parent:` that are `key: value` pairs.
+ * Stops at the next top-level key or blank line gap.
+ */
+export function extractNestedMapping(fm: string, parent: string): Record<string, string> | null {
+  const lines = fm.split("\n");
+  const prefix = parent + ":";
+  let inBlock = false;
+  const result: Record<string, string> = {};
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!inBlock) {
+      if (trimmed === prefix || trimmed.startsWith(prefix + " ")) {
+        inBlock = true;
+      }
+      continue;
+    }
+
+    // Empty line within block = continuation / separator
+    if (trimmed === "") continue;
+
+    // If line doesn't start with whitespace, we've exited the nested block
+    if (lines[i] === trimmed) break;
+
+    // Parse key: value pair
+    const kvMatch = trimmed.match(/^([\w-]+):\s*(.*)$/);
+    if (kvMatch) {
+      result[kvMatch[1]] = kvMatch[2].trim();
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+/**
  * Validate basic YAML structure. Returns issues for lines without colons.
  */
 export function checkYamlStructure(fm: string, _filePath?: string): string[] {

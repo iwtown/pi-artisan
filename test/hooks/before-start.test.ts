@@ -20,6 +20,7 @@ describe("generateHealthNotice", () => {
       skillCount: 5,
       staleResources: [],
       outdatedSkills: [],
+      upstreamDrift: [],
     });
     expect(result).toBeNull();
   });
@@ -30,6 +31,7 @@ describe("generateHealthNotice", () => {
       skillCount: 5,
       staleResources: [{ name: "old-skill", daysSinceUpdate: 120 }],
       outdatedSkills: [],
+      upstreamDrift: [],
     });
     expect(result).toContain("1 个资源已老化");
     expect(result).toContain("old-skill");
@@ -43,6 +45,7 @@ describe("generateHealthNotice", () => {
       skillCount: 5,
       staleResources: [],
       outdatedSkills: [{ name: "github", current: "1.0.0", latest: "1.2.0" }],
+      upstreamDrift: [],
     });
     expect(result).toContain("1 个 skill 版本落后");
     expect(result).toContain("github: 1.0.0 → 1.2.0");
@@ -54,6 +57,7 @@ describe("generateHealthNotice", () => {
       skillCount: 8,
       staleResources: [{ name: "old-a", daysSinceUpdate: 200 }],
       outdatedSkills: [{ name: "pkg-b", current: "0.5.0", latest: "1.0.0" }],
+      upstreamDrift: [],
     });
     expect(result).toContain("15 个能力包");
     expect(result).toContain("1 个资源已老化");
@@ -71,6 +75,7 @@ describe("generateHealthNotice", () => {
         { name: "d", daysSinceUpdate: 130 },
       ],
       outdatedSkills: [],
+      upstreamDrift: [],
     });
     expect(result).toContain("...及其他 1 个");
   });
@@ -86,8 +91,22 @@ describe("generateHealthNotice", () => {
         { name: "c", current: "1", latest: "2" },
         { name: "d", current: "1", latest: "2" },
       ],
+      upstreamDrift: [],
     });
     expect(result).toContain("...及其他 1 个");
+  });
+
+  it("reports upstream drift", () => {
+    const result = generateHealthNotice({
+      totalCount: 10,
+      skillCount: 3,
+      staleResources: [],
+      outdatedSkills: [],
+      upstreamDrift: [{ name: "my-fork", current: "1.0.0", upstream: "2.0.0", source: "skillhub/original" }],
+    });
+    expect(result).toContain("1 个 fork 落后 upstream");
+    expect(result).toContain("my-fork");
+    expect(result).toContain("v1.0.0 → upstream v2.0.0");
   });
 
   it("shows total count and skill count in header", () => {
@@ -96,6 +115,7 @@ describe("generateHealthNotice", () => {
       skillCount: 17,
       staleResources: [{ name: "x", daysSinceUpdate: 100 }],
       outdatedSkills: [],
+      upstreamDrift: [],
     });
     expect(result).toContain("42 个能力包");
     expect(result).toContain("17 个 skill");

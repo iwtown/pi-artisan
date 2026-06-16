@@ -5,8 +5,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { GLOBAL_DIRS } from "../utils/path.js";
-import { parseFrontmatter } from "../utils/yaml.js";
-import type { ResourceInfo, ResourceType } from "../types.js";
+import { parseFrontmatter, extractNestedMapping } from "../utils/yaml.js";
+import type { ResourceInfo, ResourceType, UpstreamInfo } from "../types.js";
 
 const HOME = process.env.HOME || "/home/wtown";
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
@@ -34,6 +34,29 @@ function parseSkillAuthor(filePath: string): string | null {
     if (!fm) return null;
     const match = fm.match(/^author:\s*(.+)$/m);
     return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse upstream declaration from frontmatter. */
+function parseUpstream(filePath: string): UpstreamInfo | null {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const fm = parseFrontmatter(content);
+    if (!fm) return null;
+    const nested = extractNestedMapping(fm, "upstream");
+    if (!nested) return null;
+    const syncVal = nested["sync"];
+    const sync = syncVal === "manual" || syncVal === "auto-patch" || syncVal === "never"
+      ? syncVal
+      : null;
+    return {
+      source: nested["source"] || null,
+      version: nested["version"] || null,
+      lastMerge: nested["last-merge"] || null,
+      sync,
+    };
   } catch {
     return null;
   }
@@ -69,6 +92,7 @@ function scanSkills(): ResourceInfo[] {
       lastModified: st.mtime.toISOString(),
       qualityScore: null,
       status: computeStatus(st.mtime),
+      upstream: parseUpstream(skillMd),
     });
   }
   return results;

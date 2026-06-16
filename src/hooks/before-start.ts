@@ -28,15 +28,16 @@ export interface HealthData {
   skillCount: number;
   staleResources: { name: string; daysSinceUpdate: number }[];
   outdatedSkills: { name: string; current: string; latest: string }[];
+  upstreamDrift: { name: string; current: string; upstream: string; source: string }[];
 }
 
 /**
  * Generate a health notice string. Returns null if everything is healthy (silent).
  */
 export function generateHealthNotice(data: HealthData): string | null {
-  const { totalCount, skillCount, staleResources, outdatedSkills } = data;
+  const { totalCount, skillCount, staleResources, outdatedSkills, upstreamDrift } = data;
 
-  if (staleResources.length === 0 && outdatedSkills.length === 0) {
+  if (staleResources.length === 0 && outdatedSkills.length === 0 && upstreamDrift.length === 0) {
     return null; // silent — everything healthy
   }
 
@@ -61,6 +62,13 @@ export function generateHealthNotice(data: HealthData): string | null {
     }
     if (outdatedSkills.length > 3) {
       lines.push(`     · ...及其他 ${outdatedSkills.length - 3} 个`);
+    }
+  }
+
+  if (upstreamDrift.length > 0) {
+    lines.push(`   🔄 ${upstreamDrift.length} 个 fork 落后 upstream`);
+    for (const u of upstreamDrift.slice(0, 3)) {
+      lines.push(`     · ${u.name}: v${u.current} → upstream v${u.upstream} (${u.source})`);
     }
   }
 
@@ -108,9 +116,18 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
 
       // ── 3. Version check (network, 5s timeout) ──
       let outdatedSkills: { name: string; current: string; latest: string }[] = [];
+      let upstreamDrift: { name: string; current: string; upstream: string; source: string }[] = [];
       try {
         const versions = await checkVersions();
         outdatedSkills = extractOutdatedSkills(versions);
+        upstreamDrift = versions
+          .filter((v) => v.upstreamOutdated && v.upstreamLatest)
+          .map((v) => ({
+            name: v.name,
+            current: v.currentVersion,
+            upstream: v.upstreamLatest!,
+            source: v.upstream?.source || "?",
+          }));
       } catch {
         // Network unavailable — degrade silently
       }
@@ -121,6 +138,7 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         skillCount,
         staleResources,
         outdatedSkills,
+        upstreamDrift,
       });
 
       // ── 5. Everything healthy → silent ──

@@ -36,6 +36,14 @@ export type PathValidatorFn = (filePath: string) => ValidationIssue[];
 
 export type ResourceType = "skill" | "extension" | "prompt" | "theme" | "package";
 
+/** Upstream source declaration for forked/customized resources */
+export interface UpstreamInfo {
+  source: string | null;
+  version: string | null;
+  lastMerge: string | null;
+  sync: "manual" | "auto-patch" | "never" | null;
+}
+
 export interface ResourceInfo {
   type: ResourceType;
   name: string;
@@ -46,6 +54,8 @@ export interface ResourceInfo {
   lastModified: string;
   qualityScore: number | null;
   status: "active" | "stale" | "archived";
+  /** Upstream source declaration (optional, for forked resources) */
+  upstream?: UpstreamInfo | null;
 }
 
 export interface QualityScore {
@@ -75,6 +85,10 @@ export interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   isUpToDate: boolean;
+  upstream?: UpstreamInfo | null;
+  /** Upstream has a newer version than what we last synced */
+  upstreamOutdated?: boolean;
+  upstreamLatest?: string | null;
   observation?: SkillObservation;
 }
 
