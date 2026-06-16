@@ -125,10 +125,10 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       ruleId: "skill-name-format",
       resource: r.name,
       passed: valid,
-      severity: "error",
+      severity: "warning",
       message: valid
         ? `✅ name "${name}" 格式合规`
-        : `❌ name "${name}" 不合规：小写字母/数字/连字符、≤64 字符、无前导/尾随/连续连字符`,
+        : `⚠️ name "${name}" 格式不当：小写字母/数字/连字符、≤64 字符、无前导/尾随/连续连字符（仍加载）`,
       autoFixable: true,
     };
   },
@@ -139,10 +139,10 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       ruleId: "skill-desc-length",
       resource: r.name,
       passed: ok,
-      severity: "error",
+      severity: "warning",
       message: ok
         ? `✅ description ${desc!.length}/1024 chars`
-        : `❌ description ${desc ? desc.length : 0}/1024 chars 超限`,
+        : `⚠️ description ${desc ? desc.length : 0}/1024 chars 超限（仍加载）`,
       autoFixable: false,
     };
   },
@@ -152,11 +152,11 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
     return {
       ruleId: "skill-desc-specific",
       resource: r.name,
-      passed: !vague && desc !== null,
-      severity: "warning",
+      passed: true, // always pass — this is a suggestion, not a requirement
+      severity: "info",
       message: desc && !vague
         ? `✅ description 描述具体`
-        : `⚠️ description "${desc}" 过于模糊，建议说明做什么和何时用`,
+        : `💡 description "${desc}" 可更具体（好例：'Extracts text from PDFs'）`,
       autoFixable: false,
     };
   },
@@ -262,7 +262,7 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
   "ext-tool-naming": (r) => {
     const extPath = r.path.endsWith("index.ts") ? r.path : r.path;
     if (!existsSync(extPath)) {
-      return { ruleId: "ext-tool-naming", resource: r.name, passed: true, severity: "error", message: "✅ 无法检查", autoFixable: false };
+      return { ruleId: "ext-tool-naming", resource: r.name, passed: true, severity: "warning", message: "✅ 无法检查", autoFixable: false };
     }
     const content = readFileSync(extPath, "utf-8");
     const toolNames = [...content.matchAll(/name:\s*["']([a-z_]\w*)["']/g)].map((m) => m[1]);
@@ -271,9 +271,9 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       ruleId: "ext-tool-naming",
       resource: r.name,
       passed: bad.length === 0,
-      severity: "error",
+      severity: "warning",
       message: bad.length > 0
-        ? `❌ 工具名 "${bad.join(", ")}" 应使用 snake_case`
+        ? `⚠️ 工具名 "${bad.join(", ")}" 建议用 snake_case`
         : toolNames.length > 0
           ? `✅ 工具名 snake_case (${toolNames.join(", ")})`
           : "✅ 无自定义工具（或未检测到）",

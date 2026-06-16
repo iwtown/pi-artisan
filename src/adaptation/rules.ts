@@ -42,27 +42,27 @@ export const ADAPTER_RULES: Record<string, AdapterRule[]> = {
       autoFixable: false,
     },
 
-    // ── Error: 违背规范 ──
+    // ── Warning: 官方文档标记为 warning（仍加载，但违背规范）──
     {
       id: "skill-name-format",
       type: "skill",
-      severity: "error",
+      severity: "warning",
       description: "name 必须小写字母/数字/连字符、≤64 字符、无前导/尾随/连续连字符",
-      source: "skills: Frontmatter — name format",
+      source: "skills: Validation — name format warns but loads",
       autoFixable: true,
     },
     {
       id: "skill-desc-length",
       type: "skill",
-      severity: "error",
+      severity: "warning",
       description: "description 必须 ≤1024 字符",
-      source: "skills: Frontmatter — description max 1024",
+      source: "skills: Validation — description exceeds 1024 warns but loads",
       autoFixable: false,
     },
     {
       id: "skill-desc-specific",
       type: "skill",
-      severity: "warning",
+      severity: "info",
       description: "description 应具体说明做什么和何时用（好例：'Extracts text from PDFs'；差例：'Helps with PDFs'）",
       source: "skills: Description Best Practices",
       autoFixable: false,
@@ -132,12 +132,12 @@ export const ADAPTER_RULES: Record<string, AdapterRule[]> = {
       autoFixable: false,
     },
 
-    // ── Error ──
+    // ── Warning ──
     {
       id: "ext-tool-naming",
       type: "extension",
-      severity: "error",
-      description: "自定义工具名必须 snake_case",
+      severity: "warning",
+      description: "自定义工具建议使用 snake_case 命名（不影响加载）",
       source: "extensions: Custom Tools — naming convention",
       autoFixable: false,
     },
