@@ -10,8 +10,9 @@
     "quality-gate",
     "skill-management"
   ],
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.78.0",
+  "dependencies": {},
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   },
   "engines": {
@@ -20,8 +21,7 @@
   "pi": {
     "extensions": [
       "src/index.ts"
-    ],
-    "skills": []
+    ]
   },
   "scripts": {
     "test": "vitest run && node --check src/index.ts",
