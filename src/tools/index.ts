@@ -22,6 +22,7 @@ import { checkAging } from "../catalog/aging.js";
 import { checkVersions } from "../catalog/version.js";
 import { execSync } from "node:child_process";
 import { diagnoseSkill, formatDiagnostic } from "../optimizer/optimizer.js";
+import { adaptAll, adaptByType, adaptResource, formatAdaptReport, formatAdaptSummary } from "../adaptation/engine.js";
 
 interface ToolDef {
   name: string;
@@ -239,6 +240,37 @@ export function registerTools(pi: ExtensionAPI): void {
       } catch (e: any) {
         return { content: [{ type: "text" as const, text: `❌ Publish failed: ${e.message}` }], details: {} as any };
       }
+    },
+  });
+
+  // ── adapt tool ──
+  pi.registerTool({
+    name: "adapt_resource",
+    label: "Adaptation Check",
+    description: "对能力包运行 Pi Agent 适配化改造检查。type 可选（skill/extension/prompt/theme/package），name 可选。不传参则检查全部。返回通过/失败及详细问题列表。",
+    parameters: Type.Object({
+      type: Type.Optional(Type.String({ description: "资源类型: skill/extension/prompt/theme/package" })),
+      name: Type.Optional(Type.String({ description: "资源名称（可选）" })),
+    }),
+    async execute(_id: string, params: { type?: string; name?: string }) {
+      let reports;
+      if (params.type && params.name) {
+        const { scanByType } = await import("../catalog/scanner.js");
+        const resources = scanByType(params.type as any);
+        const target = resources.find((r: any) => r.name === params.name);
+        if (!target) return { content: [{ type: "text" as const, text: `❌ 未找到 ${params.type}/${params.name}` }], details: {} as any };
+        reports = [adaptResource(target)];
+      } else if (params.type) {
+        reports = adaptByType(params.type);
+      } else {
+        reports = adaptAll();
+      }
+      const lines = [formatAdaptSummary(reports)];
+      for (const r of reports.filter((x) => !x.allPassed).slice(0, 5)) {
+        lines.push("");
+        lines.push(formatAdaptReport(r));
+      }
+      return { content: [{ type: "text" as const, text: lines.join("\n") }], details: { reports } as any };
     },
   });
 

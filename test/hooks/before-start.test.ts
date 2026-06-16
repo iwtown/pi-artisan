@@ -21,6 +21,7 @@ describe("generateHealthNotice", () => {
       staleResources: [],
       outdatedSkills: [],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toBeNull();
   });
@@ -32,6 +33,7 @@ describe("generateHealthNotice", () => {
       staleResources: [{ name: "old-skill", daysSinceUpdate: 120 }],
       outdatedSkills: [],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("1 个资源已老化");
     expect(result).toContain("old-skill");
@@ -46,6 +48,7 @@ describe("generateHealthNotice", () => {
       staleResources: [],
       outdatedSkills: [{ name: "github", current: "1.0.0", latest: "1.2.0" }],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("1 个 skill 版本落后");
     expect(result).toContain("github: 1.0.0 → 1.2.0");
@@ -58,6 +61,7 @@ describe("generateHealthNotice", () => {
       staleResources: [{ name: "old-a", daysSinceUpdate: 200 }],
       outdatedSkills: [{ name: "pkg-b", current: "0.5.0", latest: "1.0.0" }],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("15 个能力包");
     expect(result).toContain("1 个资源已老化");
@@ -76,6 +80,7 @@ describe("generateHealthNotice", () => {
       ],
       outdatedSkills: [],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("...及其他 1 个");
   });
@@ -92,6 +97,7 @@ describe("generateHealthNotice", () => {
         { name: "d", current: "1", latest: "2" },
       ],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("...及其他 1 个");
   });
@@ -103,10 +109,24 @@ describe("generateHealthNotice", () => {
       staleResources: [],
       outdatedSkills: [],
       upstreamDrift: [{ name: "my-fork", current: "1.0.0", upstream: "2.0.0", source: "skillhub/original" }],
+      adaptFailCount: 0,
     });
     expect(result).toContain("1 个 fork 落后 upstream");
     expect(result).toContain("my-fork");
     expect(result).toContain("v1.0.0 → upstream v2.0.0");
+  });
+
+  it("reports adaptation failures", () => {
+    const result = generateHealthNotice({
+      totalCount: 10,
+      skillCount: 5,
+      staleResources: [],
+      outdatedSkills: [],
+      upstreamDrift: [],
+      adaptFailCount: 3,
+    });
+    expect(result).toContain("3 个能力包未通过适配化改造");
+    expect(result).toContain("/adapt");
   });
 
   it("shows total count and skill count in header", () => {
@@ -116,6 +136,7 @@ describe("generateHealthNotice", () => {
       staleResources: [{ name: "x", daysSinceUpdate: 100 }],
       outdatedSkills: [],
       upstreamDrift: [],
+      adaptFailCount: 0,
     });
     expect(result).toContain("42 个能力包");
     expect(result).toContain("17 个 skill");

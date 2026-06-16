@@ -18,6 +18,7 @@ import { scanResources } from "../catalog/scanner.js";
 import { checkAging } from "../catalog/aging.js";
 import { checkVersions } from "../catalog/version.js";
 import type { AgingInfo, VersionInfo } from "../types.js";
+import { adaptAll } from "../adaptation/engine.js";
 
 // ─────────────────────────────────────────────────────────
 //  Pure functions (testable without mocks)
@@ -29,6 +30,7 @@ export interface HealthData {
   staleResources: { name: string; daysSinceUpdate: number }[];
   outdatedSkills: { name: string; current: string; latest: string }[];
   upstreamDrift: { name: string; current: string; upstream: string; source: string }[];
+  adaptFailCount: number;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface HealthData {
 export function generateHealthNotice(data: HealthData): string | null {
   const { totalCount, skillCount, staleResources, outdatedSkills, upstreamDrift } = data;
 
-  if (staleResources.length === 0 && outdatedSkills.length === 0 && upstreamDrift.length === 0) {
+  if (staleResources.length === 0 && outdatedSkills.length === 0 && upstreamDrift.length === 0 && data.adaptFailCount === 0) {
     return null; // silent — everything healthy
   }
 
@@ -70,6 +72,11 @@ export function generateHealthNotice(data: HealthData): string | null {
     for (const u of upstreamDrift.slice(0, 3)) {
       lines.push(`     · ${u.name}: v${u.current} → upstream v${u.upstream} (${u.source})`);
     }
+  }
+
+  if (data.adaptFailCount > 0) {
+    lines.push(`   🔴 ${data.adaptFailCount} 个能力包未通过适配化改造`);
+    lines.push(`   💡 运行 /adapt 查看详情`);
   }
 
   lines.push(`   💡 运行 /resource-maintain 查看详情`);
@@ -132,21 +139,31 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         // Network unavailable — degrade silently
       }
 
-      // ── 4. Generate notice ──
+      // ── 4. Adaptation check (local, fast) ──
+      let adaptFailCount = 0;
+      try {
+        const adaptReports = adaptAll();
+        adaptFailCount = adaptReports.filter((r) => !r.allPassed).length;
+      } catch {
+        // Adaptation check failure must not block startup
+      }
+
+      // ── 5. Generate notice ──
       const notice = generateHealthNotice({
         totalCount,
         skillCount,
         staleResources,
         outdatedSkills,
         upstreamDrift,
+        adaptFailCount,
       });
 
-      // ── 5. Everything healthy → silent ──
+      // ── 6. Everything healthy → silent ──
       if (notice === null) {
         return undefined;
       }
 
-      // ── 6. Issues found → notify ──
+      // ── 7. Issues found → notify ──
       if (ctx.hasUI) {
         ctx.ui?.notify(notice, "info");
       }
