@@ -31,6 +31,18 @@ export type ValidatorFn = (content: string, filePath?: string) => ValidationIssu
 export type PathValidatorFn = (filePath: string) => ValidationIssue[];
 
 // ═══════════════════════════════════════════════════════════
+//  Version Source Types (no hard binding to any registry)
+// ═══════════════════════════════════════════════════════════
+
+export type VersionSourceType = "skillhub" | "npm" | "github" | "git" | "local" | "unknown";
+
+/** Describes where to check for the latest version of a resource */
+export interface VersionSource {
+  type: VersionSourceType;
+  identifier: string;
+}
+
+// ═══════════════════════════════════════════════════════════
 //  Resource Catalog Types
 // ═══════════════════════════════════════════════════════════
 

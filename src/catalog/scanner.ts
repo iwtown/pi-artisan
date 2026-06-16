@@ -10,8 +10,22 @@ import type { ResourceInfo, ResourceType, UpstreamInfo } from "../types.js";
 
 const HOME = process.env.HOME || "/home/wtown";
 const SETTINGS_PATH = join(HOME, ".pi", "agent", "settings.json");
+const MANIFEST_PATH = join(HOME, ".pi", "agent", "skills", ".manifest.json");
 const STALE_DAYS = 90;
 const ARCHIVE_DAYS = 180;
+
+/** Load .manifest.json to determine real source of installed skills */
+function getManifestSource(skillName: string): string | null {
+  try {
+    if (!existsSync(MANIFEST_PATH)) return null;
+    const raw = readFileSync(MANIFEST_PATH, "utf-8");
+    const manifest = JSON.parse(raw);
+    const entry = manifest?.skills?.[skillName];
+    return entry?.source || null;
+  } catch {
+    return null;
+  }
+}
 
 /** Parse version from a SKILL.md file's frontmatter. */
 function parseSkillVersion(filePath: string): string | null {
@@ -82,13 +96,14 @@ function scanSkills(): ResourceInfo[] {
     const skillMd = join(skillDir, "SKILL.md");
     if (!existsSync(skillMd)) continue;
     const st = statSync(skillMd);
+    const manifestSource = getManifestSource(entry.name);
     results.push({
       type: "skill",
       name: entry.name,
       path: skillMd,
       version: parseSkillVersion(skillMd),
       author: parseSkillAuthor(skillMd),
-      source: "local",
+      source: manifestSource || "local",
       lastModified: st.mtime.toISOString(),
       qualityScore: null,
       status: computeStatus(st.mtime),

@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { checkAging } from "../catalog/aging.js";
-import { checkVersions } from "../catalog/version.js";
+import { checkVersions, determineVersionSource } from "../catalog/version.js";
 import { formatMaintainReport, type ObservationDisplay } from "../catalog/report.js";
 
 export function registerResourceMaintain(pi: ExtensionAPI): void {
@@ -67,15 +67,23 @@ export function registerResourceMaintain(pi: ExtensionAPI): void {
       ctx.ui?.notify(report, "info");
       ctx.ui?.setWidget("resource-maintain", report.split("\n"));
 
-      // Suggest upgrade commands
+      // Suggest upgrade commands (source-aware, no hardcoded skillhub)
       const tips: string[] = [];
-      for (const o of outdatedEntries) {
-        if (o.type === "skill") {
-          tips.push(`💡 skillhub upgrade ${o.name}`);
+      for (const v of versionResults) {
+        if (v.isUpToDate || v.latestVersion === null) continue;
+        const vs = determineVersionSource(v.upstream || null, v.name);
+        if (vs?.type === "skillhub") {
+          tips.push(`💡 skillhub upgrade ${vs.identifier}`);
+        } else if (vs?.type === "npm") {
+          tips.push(`💡 npm update -g ${vs.identifier}`);
         }
       }
       for (const u of upstreamEntries) {
-        tips.push(`🔄 git pull upstream && bump upstream.version for ${u.name}`);
+        const vs = determineVersionSource({ source: u.source, version: null, lastMerge: null, sync: null }, u.name);
+        let upgradeHint = "git pull upstream && bump upstream.version";
+        if (vs?.type === "skillhub") upgradeHint = `skillhub upgrade ${vs.identifier}`;
+        else if (vs?.type === "npm") upgradeHint = `npm update -g ${vs.identifier}`;
+        tips.push(`🔄 ${upgradeHint} (${u.name})`);
       }
       if (tips.length > 0) {
         ctx.ui?.notify(tips.join("\n"), "info");
