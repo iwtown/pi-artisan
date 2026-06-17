@@ -136,6 +136,13 @@ bash scripts/init-skill.sh my-skill "当用户需要…时加载"
 | **工具** | 5 个 validate_* + 4 个 resource_* 工具 | 7 个 obs-* 工具 |
 | **线上平台** | skillhub.cn（skills） | — |
 
+## 更多文档
+
+- [`_docs/boundary-framework.md`](_docs/boundary-framework.md) — 5 种能力类型的边界定义 + 决策树 + 适配规则速查
+- [`SKILL.md`](SKILL.md) — pi-artisan 的使用指南（渐进式披露，按需加载）
+- [`src/adaptation/`](src/adaptation/) — 36 条适配规则实现
+- [`src/catalog/`](src/catalog/) — 资源扫描 + 评分 + 老化 + 版本追踪
+
 ## License
 
 MIT
