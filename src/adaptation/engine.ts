@@ -225,6 +225,38 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       autoFixable: false,
     };
   },
+  "skill-allow-unknown-fields": (r) => {
+    return {
+      ruleId: "skill-allow-unknown-fields",
+      resource: r.name,
+      passed: true,
+      severity: "info",
+      message: "💡 Pi 忽略未知 frontmatter 字段（如 upstream），确保不干扰 Pi 解析",
+      autoFixable: false,
+    };
+  },
+  "skill-license-field": (r) => {
+    const license = checkFrontmatterField(dirname(r.path), "license");
+    return {
+      ruleId: "skill-license-field",
+      resource: r.name,
+      passed: true,
+      severity: "info",
+      message: license ? `💡 license: "${license}"` : "💡 建议添加 license 字段（MIT/Apache-2.0/GPL-3.0）",
+      autoFixable: false,
+    };
+  },
+  "skill-allowed-tools": (r) => {
+    const tools = checkFrontmatterField(dirname(r.path), "allowed-tools");
+    return {
+      ruleId: "skill-allowed-tools",
+      resource: r.name,
+      passed: true,
+      severity: "info",
+      message: tools ? `💡 allowed-tools: ${tools}` : "💡 allowed-tools 是实验性字段，限制 skill 可调用的工具",
+      autoFixable: false,
+    };
+  },
 
   // ── Extension ──
   "ext-export-default": (r) => {
@@ -287,9 +319,27 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       resource: r.name,
       passed: true,
       severity: "warning",
-      message: "💡 确认后台资源在 session_start 启动、session_shutdown 关闭",
+      message: "💡 后台资源（timer/socket/watch）必须在 session_start 启动、session_shutdown 关闭。不要在工厂函数中启动后台资源。",
       autoFixable: false,
     };
+  },
+  "ext-event-lifecycle": (r) => {
+    const extPath = r.path.endsWith("index.ts") ? r.path : r.path;
+    if (!existsSync(extPath)) { return { ruleId: "ext-event-lifecycle", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+    const c = readFileSync(extPath, "utf-8");
+    const hasEvent = c.includes("pi.on(");
+    const hasClean = c.includes("session_shutdown");
+    return { ruleId: "ext-event-lifecycle", resource: r.name, passed: true, severity: "info",
+      message: hasEvent ? (hasClean ? "💡 注册了事件 + session_shutdown 清理" : "💡 注册了事件，提防后台泄漏 — 建议实现 session_shutdown") : "💡 无事件订阅（仅注册工具/命令则正常）", autoFixable: false };
+  },
+  "ext-package-deps": (r) => {
+    const dir = r.path.endsWith("index.ts") ? dirname(r.path) : dirname(r.path);
+    return { ruleId: "ext-package-deps", resource: r.name, passed: true, severity: "info",
+      message: existsSync(join(dir, "package.json")) ? "💡 有 package.json，npm 依赖已声明" : "💡 无外部依赖则单文件即可；有依赖时需 package.json", autoFixable: false };
+  },
+  "ext-structure": (r) => {
+    return { ruleId: "ext-structure", resource: r.name, passed: true, severity: "info",
+      message: "💡 选型：单文件 .ts（简单）→ dir/index.ts（中等）→ 带 package.json（复杂+依赖）", autoFixable: false };
   },
 
   // ── Prompt ──
@@ -321,6 +371,25 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       message: valid ? `✅ 文件名 "${name}" 适合作命令名` : `❌ 文件名 "${name}" 应简短小写字母/数字/连字符`,
       autoFixable: false,
     };
+  },
+  "prompt-argument-hint": (r) => {
+    try {
+      const c = readFileSync(r.path, "utf-8");
+      const fm = c.match(/^---\n([\s\S]*?)\n---/);
+      const hasHint = !!(fm && /argument-hint:\s*\S/.test(fm[1]));
+      const hasArgs = /\$[1-9@]/.test(c);
+      return { ruleId: "prompt-argument-hint", resource: r.name, passed: true, severity: "info",
+        message: hasHint ? "✅ 有 argument-hint（autocomplete 展示参数提示）" : hasArgs ? "💡 模板使用参数，建议加 argument-hint" : "💡 无参数，不需要 argument-hint", autoFixable: false };
+    } catch { return { ruleId: "prompt-argument-hint", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+  },
+  "prompt-args-format": (r) => {
+    try {
+      const c = readFileSync(r.path, "utf-8");
+      const hasArgs = /\$[1-9@]/.test(c) || /\$\{\d+:/.test(c);
+      const hasSlice = /\$\{\s*@\s*:\s*\d+/.test(c);
+      return { ruleId: "prompt-args-format", resource: r.name, passed: true, severity: "info",
+        message: hasArgs ? (hasSlice ? "✅ 参数+分片（$1, $@, ${@:N}, ${@:N:L}）" : "✅ 使用参数（$1, $2, $@, ${1:-default}）") : "💡 无参数", autoFixable: false };
+    } catch { return { ruleId: "prompt-args-format", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
   },
 
   // ── Theme ──
@@ -395,6 +464,27 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
       return { ruleId: "theme-color-formats", resource: r.name, passed: true, severity: "error", message: "✅ 无法验证", autoFixable: false };
     }
   },
+  "theme-vars-reuse": (r) => {
+    try {
+      const json = JSON.parse(readFileSync(r.path, "utf-8"));
+      const hasVars = !!json.vars && Object.keys(json.vars).length > 0;
+      const refd = hasVars && Object.values(json.colors || {}).some((v: any) => typeof v === "string" && v in json.vars);
+      return { ruleId: "theme-vars-reuse", resource: r.name, passed: true, severity: "info",
+        message: hasVars ? (refd ? "✅ vars 已定义并被引用" : "💡 vars 已定义但未被 colors 引用") : "💡 建议用 vars 定义可复用色值", autoFixable: false };
+    } catch { return { ruleId: "theme-vars-reuse", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+  },
+  "theme-schema-ref": (r) => {
+    try { return { ruleId: "theme-schema-ref", resource: r.name, passed: true, severity: "info",
+      message: readFileSync(r.path, "utf-8").includes("$schema") ? "✅ 有 $schema 引用（编辑器补全+校验）" : "💡 建议添加 $schema 引用", autoFixable: false }; }
+    catch { return { ruleId: "theme-schema-ref", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+  },
+  "theme-export-html": (r) => {
+    try {
+      const json = JSON.parse(readFileSync(r.path, "utf-8"));
+      return { ruleId: "theme-export-html", resource: r.name, passed: true, severity: "info",
+        message: json.export ? "💡 有 export 节（/export HTML 输出配色）" : "💡 如需 /export HTML 输出，可加 export 节指定 pageBg/cardBg/infoBg", autoFixable: false };
+    } catch { return { ruleId: "theme-export-html", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+  },
 
   // ── Package ──
   "pkg-package-json": (r) => {
@@ -448,6 +538,33 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
     } catch {
       return { ruleId: "pkg-keyword", resource: r.name, passed: true, severity: "info", message: "💡 建议加 pi-package 关键词", autoFixable: false };
     }
+  },
+  "pkg-pi-manifest-keys": (r) => {
+    const ALLOWED = ["extensions", "skills", "prompts", "themes", "video", "image"];
+    const pkgPath = join(r.path, "package.json");
+    if (!existsSync(pkgPath)) { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+    try {
+      const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      if (!json.pi) { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "info", message: "💡 无 pi 清单", autoFixable: false }; }
+      const bad = Object.keys(json.pi).filter((k) => !ALLOWED.includes(k));
+      return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: bad.length === 0, severity: "warning",
+        message: bad.length > 0 ? "⚠️ pi 清单含未知键: " + bad.join(", ") + "（允许: extensions/skills/prompts/themes/video/image）" : "✅ pi 清单键有效", autoFixable: false };
+    } catch { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "warning", message: "💡 无法验证", autoFixable: false }; }
+  },
+  "pkg-conventional-dirs": (r) => {
+    const dirs = ["skills", "extensions", "prompts", "themes"].filter((d) => existsSync(join(r.path, d)));
+    return { ruleId: "pkg-conventional-dirs", resource: r.name, passed: true, severity: "info",
+      message: dirs.length > 0 ? "💡 使用约定目录: " + dirs.join("/, ") + "/" : "💡 可用约定目录（skills/ extensions/ prompts/ themes/）代替 pi 清单", autoFixable: false };
+  },
+  "pkg-peer-deps": (r) => {
+    const pkgPath = join(r.path, "package.json");
+    if (!existsSync(pkgPath)) { return { ruleId: "pkg-peer-deps", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+    try {
+      const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      const hasPi = Object.keys(json.peerDependencies || {}).some((k) => k.startsWith("@earendil-works/pi-"));
+      return { ruleId: "pkg-peer-deps", resource: r.name, passed: true, severity: "info",
+        message: hasPi ? "✅ pi SDK 已列为 peerDependencies" : "💡 引用 pi SDK 的包建议列 @earendil-works/pi-* 为 peerDependencies", autoFixable: false };
+    } catch { return { ruleId: "pkg-peer-deps", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
   },
 };
 
