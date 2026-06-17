@@ -40,6 +40,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { setupInputHook } from "./hooks/input.js";
 import { setupToolCallHook } from "./hooks/tool-call.js";
 import { setupToolResultHook } from "./hooks/tool-result.js";
 import { setupBeforeStartHook } from "./hooks/before-start.js";
@@ -47,7 +48,8 @@ import { registerCommands } from "./commands/index.js";
 import { registerTools } from "./tools/index.js";
 
 export default function (pi: ExtensionAPI): void {
-  // Hooks — startup inspection + auto-validate on write/edit
+  // Hooks — startup inspection + auto-validate + intent routing
+  setupInputHook(pi);
   setupBeforeStartHook(pi);
   setupToolCallHook(pi);
   setupToolResultHook(pi);

@@ -109,19 +109,20 @@ export function setupToolResultHook(pi: ExtensionAPI): void {
     const toolName = event.toolName;
     const hasUI = ctx?.hasUI;
     const notify = ctx?.ui?.notify?.bind(ctx.ui);
+    const sendMsg = pi.sendUserMessage?.bind(pi);
 
     // ── write/edit — 从文件路径检测资源 ──
     if (toolName === "write" || toolName === "edit") {
       const filePath = pendingPaths.get(event.toolCallId);
       if (!filePath) return;
       pendingPaths.delete(event.toolCallId);
-      await handleWriteEdit(filePath, hasUI, notify);
+      await handleWriteEdit(filePath, hasUI, notify, sendMsg);
       return;
     }
 
     // ── bash — 快照差分检测新增 ──
     if (toolName === "bash") {
-      await handleBash(hasUI, notify);
+      await handleBash(hasUI, notify, sendMsg);
       return;
     }
   });
@@ -135,6 +136,7 @@ async function handleWriteEdit(
   filePath: string,
   hasUI: boolean,
   notify: ((msg: string, level: "info" | "warning" | "error") => void) | undefined,
+  sendMsg: ((content: string | any[], options?: any) => void) | undefined,
 ): Promise<void> {
   const detected = detectResource(filePath);
 
@@ -158,6 +160,9 @@ async function handleWriteEdit(
             report.allPassed ? "info" : "warning",
           );
         }
+        if (!report.allPassed && sendMsg) {
+          sendMsg(`🧰 pi-artisan: 新 package "${pkgName}" 适配检查未通过（${report.criticalCount} critical, ${report.errorCount} error）。运行 /adapt 查看详情。`, { deliverAs: "followUp" });
+        }
       }
     }
     return;
@@ -169,7 +174,7 @@ async function handleWriteEdit(
   const resource = toResourceInfo(detected);
   const report = adaptResource(resource);
 
-  // 格式校验（作为补充细节，仅 TUI）
+  // 格式校验（作为补充细节）
   let extraLines: string[] = [];
   if (detected.type === "skill") {
     try {
@@ -183,9 +188,11 @@ async function handleWriteEdit(
     } catch {}
   }
 
-  // 通知
+  const hasIssues = !report.allPassed || extraLines.length > 0;
+
+  // TUI 通知
   if (hasUI && notify) {
-    if (report.allPassed && extraLines.length === 0) {
+    if (!hasIssues) {
       notify(`✅ ${detected.name} (${detected.type}) — 适配通过`, "info");
     } else {
       const lines: string[] = [];
@@ -207,6 +214,17 @@ async function handleWriteEdit(
     }
   }
 
+  // 主动消息（-p 模式下的主动路由）
+  if (hasIssues && sendMsg) {
+    let msg = `🧰 pi-artisan: ${detected.type} \"${detected.name}\"`;
+    if (!report.allPassed) {
+      msg += ` 适配检查未通过（${report.criticalCount} critical, ${report.errorCount} error）。${extraLines.length > 0 ? `格式校验有 ${extraLines.length} 项问题。` : ""}修复后可通过 /adapt 重新检查。`;
+    } else if (extraLines.length > 0) {
+      msg += ` 格式校验有 ${extraLines.length} 项问题需关注。`;
+    }
+    sendMsg(msg, { deliverAs: "followUp" });
+  }
+
   // 更新快照
   knownResources!.add(snapKey(resource));
 }
@@ -218,6 +236,7 @@ async function handleWriteEdit(
 async function handleBash(
   hasUI: boolean,
   notify: ((msg: string, level: "info" | "warning" | "error") => void) | undefined,
+  sendMsg: ((content: string | any[], options?: any) => void) | undefined,
 ): Promise<void> {
   const oldKeys = knownResources!;
   const newSnapshot = takeSnapshot();
@@ -255,6 +274,11 @@ async function handleBash(
         }
         notify(lines.join("\n"), "warning");
       }
+    }
+
+    // +主动路由: 新增资源有适配问题时通知 agent
+    if (!report.allPassed && sendMsg) {
+      sendMsg(`🧰 pi-artisan: 检测到新 ${type} "${name}"，适配检查未通过（${report.criticalCount} critical, ${report.errorCount} error）。修复后可通过 /adapt 重新检查。`, { deliverAs: "followUp" });
     }
   }
 

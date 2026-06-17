@@ -34,14 +34,11 @@ export interface HealthData {
 }
 
 /**
- * Generate a health notice string. Returns null if everything is healthy (silent).
+ * Generate a status notice. Always returns a string with resource overview
+ * and any issues found. Returns null only on scan failure.
  */
 export function generateHealthNotice(data: HealthData): string | null {
   const { totalCount, skillCount, staleResources, outdatedSkills, upstreamDrift } = data;
-
-  if (staleResources.length === 0 && outdatedSkills.length === 0 && upstreamDrift.length === 0 && data.adaptFailCount === 0) {
-    return null; // silent — everything healthy
-  }
 
   const lines: string[] = [];
   lines.push(`🧰 pi-artisan 工坊巡检`);
@@ -82,6 +79,37 @@ export function generateHealthNotice(data: HealthData): string | null {
   lines.push(`   💡 运行 /resource-maintain 查看详情`);
 
   return lines.join("\n");
+}
+
+/**
+ * Generate the full pi-artisan context block for system prompt injection.
+ * Unlike generateHealthNotice, this ALWAYS returns a string so the agent
+ * knows pi-artisan is present and what resources it manages.
+ */
+export function generateWorkshopContext(data: HealthData): string {
+  const health = generateHealthNotice(data);
+  const overview = `🧰 pi-artisan 工匠工坊 — 能力包全生命周期管理
+   管理 5 种能力包类型：skills / extensions / prompts / themes / packages
+   当前共 ${data.totalCount} 个能力包（${data.skillCount} 个 skill）
+
+   你在操作以上类型的能力包时，pi-artisan 会自动介入：
+   · 创建/编辑 → 自动校验 + 适配检查
+   · 发现新资源 → 自动适配检查
+   · 涉及部署/版本管理 → 提示下一步操作
+
+   常用工具：
+   · /resource-list           — 列出所有资源
+   · /resource-status         — 查看资源质量报告
+   · /resource-maintain       — 老化检测 + 版本追踪
+   · /resource-birth          — 出生证检查（发布前必须通过）
+   · /adapt                   — 适配化改造检查
+   · /validate-skill          — 校验 SKILL.md
+   · /optimize-skill          — 8 维 Rubric 诊断`;
+
+  if (health) {
+    return `${overview}\n\n${health}`;
+  }
+  return overview;
 }
 
 /**
@@ -148,8 +176,8 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         // Adaptation check failure must not block startup
       }
 
-      // ── 5. Generate notice ──
-      const notice = generateHealthNotice({
+      // ── 5. Generate context block（always inject, even when healthy）──
+      const context = generateWorkshopContext({
         totalCount,
         skillCount,
         staleResources,
@@ -158,18 +186,22 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         adaptFailCount,
       });
 
-      // ── 6. Everything healthy → silent ──
-      if (notice === null) {
-        return undefined;
+      // ── 6. TUI notification（only when issues found）──
+      const health = generateHealthNotice({
+        totalCount,
+        skillCount,
+        staleResources,
+        outdatedSkills,
+        upstreamDrift,
+        adaptFailCount,
+      });
+      if (ctx.hasUI && health) {
+        ctx.ui?.notify(health, "info");
       }
 
-      // ── 7. Issues found → notify ──
-      if (ctx.hasUI) {
-        ctx.ui?.notify(notice, "info");
-      }
-
+      // ── 7. Always inject context into system prompt ──
       return {
-        systemPrompt: event.systemPrompt + `\n\n---\n## 🧰 pi-artisan 工坊状态\n${notice}\n---\n`,
+        systemPrompt: event.systemPrompt + `\n\n---\n${context}\n---\n`,
       };
     } catch (err) {
       // Inspection failure must never block agent startup

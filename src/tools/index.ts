@@ -18,6 +18,7 @@ import type { ValidationIssue, ResourceType } from "../types.js";
 import { scanByType, scanResources, findResource } from "../catalog/scanner.js";
 import { computeQualityScore } from "../catalog/score.js";
 import { generateReport, formatResourceTable } from "../catalog/report.js";
+import { skillGitDeployTool } from "../tools/git-deploy.js";
 import { checkAging } from "../catalog/aging.js";
 import { checkVersions } from "../catalog/version.js";
 import { execSync } from "node:child_process";
@@ -297,4 +298,7 @@ export function registerTools(pi: ExtensionAPI): void {
       };
     },
   });
+
+  // ── skill_git_deploy tool ──
+  pi.registerTool(skillGitDeployTool);
 }
