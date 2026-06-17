@@ -25,6 +25,7 @@ import { registerResourcePublish } from "./resource-publish.js";
 import { registerOptimizeSkill } from "./optimize-skill.js";
 import { registerBirthCert } from "./birth-cert.js";
 import { registerAdaptCommand } from "./adapt.js";
+import { setupCreateSkillCommand } from "./create-skill.js";
 
 type CommandHandler = (args: string, ctx: any) => Promise<void>;
 
@@ -111,4 +112,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 
   // ── Adaptation check ──
   registerAdaptCommand(pi);
+
+  // ── Skill creation (command + tool) ──
+  setupCreateSkillCommand(pi);
 }

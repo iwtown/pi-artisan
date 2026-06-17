@@ -45,8 +45,8 @@ const OPERATIONS = [
 
 const ROUTING_HINTS: Record<string, string> = {
   skill: `🧰 pi-artisan 路由：检测到 skill 操作。
-skill 全生命周期：/find 搜索 → /adapt 适配检查 → /resource-birth 出生证 → 编辑 SKILL.md → /validate-skill 校验。
-常用工具：/adapt, /resource-birth, /validate-skill, /optimize-skill, /resource-publish`,
+skill 全生命周期：/find-skills 搜索 → /create-skill scaffold → /adapt 适配检查 → /resource-birth 出生证 → 编辑 SKILL.md → /validate-skill 校验。
+常用工具：/create-skill, /adapt, /resource-birth, /validate-skill, /optimize-skill, /resource-publish`,
   extension: `🧰 pi-artisan 路由：检测到 extension 操作。
 extension 工作流：创建 .ts → /adapt 适配检查 → /resource-birth 出生证。
 常用工具：/adapt, /validate-extension, /resource-birth`,
