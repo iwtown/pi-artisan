@@ -21,7 +21,10 @@
   "pi": {
     "extensions": [
       "src/index.ts"
-    ]
+    ],
+    "skills": [],
+    "prompts": [],
+    "themes": []
   },
   "scripts": {
     "test": "vitest run && node --check src/index.ts",
@@ -29,6 +32,7 @@
     "typecheck": "npx tsc --noEmit",
     "build": "npx tsc"
   },
+  "main": "src/index.ts",
   "license": "MIT",
   "repository": {
     "type": "git",
