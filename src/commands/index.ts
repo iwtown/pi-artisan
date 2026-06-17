@@ -26,6 +26,10 @@ import { registerOptimizeSkill } from "./optimize-skill.js";
 import { registerBirthCert } from "./birth-cert.js";
 import { registerAdaptCommand } from "./adapt.js";
 import { setupCreateSkillCommand } from "./create-skill.js";
+import { setupCreateExtensionCommand } from "./create-extension.js";
+import { setupCreatePromptCommand } from "./create-prompt.js";
+import { setupCreateThemeCommand } from "./create-theme.js";
+import { setupCreatePackageCommand } from "./create-package.js";
 
 type CommandHandler = (args: string, ctx: any) => Promise<void>;
 
@@ -113,6 +117,10 @@ export function registerCommands(pi: ExtensionAPI): void {
   // ── Adaptation check ──
   registerAdaptCommand(pi);
 
-  // ── Skill creation (command + tool) ──
+  // ── Create commands ──
   setupCreateSkillCommand(pi);
+  setupCreateExtensionCommand(pi);
+  setupCreatePromptCommand(pi);
+  setupCreateThemeCommand(pi);
+  setupCreatePackageCommand(pi);
 }

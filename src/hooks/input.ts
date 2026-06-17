@@ -109,17 +109,17 @@ const ROUTING_HINTS: Record<string, string> = {
 skill 全生命周期：/find-skills 搜索 → /create-skill scaffold → /adapt 适配检查 → /resource-birth 出生证 → 编辑 SKILL.md → /validate-skill 校验。
 常用工具：/create-skill, /adapt, /resource-birth, /validate-skill, /optimize-skill, /resource-publish`,
   extension: `🧰 pi-artisan 路由：检测到 extension 操作。
-extension 工作流：创建 .ts → /adapt 适配检查 → /resource-birth 出生证。
-常用工具：/adapt, /validate-extension, /resource-birth`,
+extension 全生命周期：/create-extension scaffold → /adapt 适配检查 → /resource-birth 出生证。
+常用工具：/create-extension, /adapt, /validate-extension, /resource-birth`,
   prompt: `🧰 pi-artisan 路由：检测到 prompt 操作。
-prompt 工作流：创建 .md → /adapt 适配检查 → /resource-birth 出生证。
-常用工具：/adapt, /validate-prompt, /resource-birth`,
+prompt 全生命周期：/create-prompt scaffold → /adapt 适配检查 → /resource-birth 出生证。
+常用工具：/create-prompt, /adapt, /validate-prompt, /resource-birth`,
   theme: `🧰 pi-artisan 路由：检测到 theme 操作。
-theme 工作流：创建 .json（51 色值）→ /adapt 适配检查 → /resource-birth 出生证。
-常用工具：/adapt, /validate-theme, /resource-birth`,
+theme 全生命周期：/create-theme scaffold → /adapt 适配检查 → /resource-birth 出生证。
+常用工具：/create-theme, /adapt, /validate-theme, /resource-birth`,
   package: `🧰 pi-artisan 路由：检测到 package 操作。
-package 工作流：package.json + pi 清单 → /adapt 适配检查 → /resource-birth 出生证。
-常用工具：/adapt, /validate-package, /resource-birth`,
+package 全生命周期：/create-package scaffold → /adapt 适配检查 → /resource-birth 出生证。
+常用工具：/create-package, /adapt, /validate-package, /resource-birth`,
 };
 
 // ─────────────────────────────────────────────
