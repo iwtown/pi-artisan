@@ -3,7 +3,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { GLOBAL_DIRS } from "../utils/path.js";
 import { parseFrontmatter, extractNestedMapping } from "../utils/yaml.js";
 import type { ResourceInfo, ResourceType, UpstreamInfo } from "../types.js";
@@ -186,20 +186,42 @@ interface SettingsJson {
   packages?: (string | { name?: string; source?: string })[];
 }
 
+/** Resolve a local path package entry to its package.json name, if available. */
+function resolvePkgName(entry: string): string {
+  // Only resolve local paths (relative or absolute)
+  if (!entry.startsWith(".") && !entry.startsWith("/") && !entry.startsWith("~")) {
+    return entry;
+  }
+  try {
+    const resolved = entry.startsWith("~")
+      ? join(HOME, entry.slice(1))
+      : join(dirname(SETTINGS_PATH), entry);
+    const pkgJson = join(resolved, "package.json");
+    if (!existsSync(pkgJson)) return entry;
+    const meta = JSON.parse(readFileSync(pkgJson, "utf-8"));
+    return meta.name || entry;
+  } catch {
+    return entry;
+  }
+}
+
 function scanPackages(): ResourceInfo[] {
   if (!existsSync(SETTINGS_PATH)) return [];
   try {
     const settings: SettingsJson = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
     const pkgs = settings.packages || [];
     return pkgs.map((pkg) => {
-      const name = typeof pkg === "string" ? pkg : pkg.name || "unknown";
+      const rawName = typeof pkg === "string" ? pkg : pkg.name || "unknown";
+      // ponytail: local path packages resolve their real name from package.json
+      const name = resolvePkgName(rawName);
+      const source = typeof pkg === "object" && pkg.source ? pkg.source : "npm";
       return {
         type: "package" as ResourceType,
         name,
-        path: name,
+        path: rawName,
         version: null,
         author: null,
-        source: typeof pkg === "object" && pkg.source ? pkg.source : "npm",
+        source,
         lastModified: new Date().toISOString(),
         qualityScore: null,
         status: "active" as const,
