@@ -5,6 +5,7 @@ version: 2.3.0
 author: wtown
 license: MIT
 tags: [pi-artisan, capability-management, quality-gate, adapter, validator]
+tested-models: [deepseek-v4-flash]
 trigger: 能力包, skill, extension, 扩展, prompt, 提示词, theme, 主题, package, 包, artisan, 工坊, 质量管理, 适配, 校验, 发布
 disable-model-invocation: false
 ---
@@ -138,6 +139,38 @@ pi-artisan 内置 36 条适配规则覆盖全部 5 种类型，依据 pi.dev/doc
 - 用户说「这个循环能不能优化」→ 纯代码审查，非能力包操作
 
 成功 = 用户在面对能力包管理任务时，pi-artisan 主动拦截并引导，而非由 LLM 猜测该怎么做。
+
+## Examples
+
+### Example 1: Creating a New Skill
+
+**User**: "我要封装一个自动整理下载文件夹的 skill"
+
+**Agent action**:
+1. Detect intent via input hook → crystallization flow triggered
+2. Phase A: worth-it? (通用性 ✅, 复现频率 ✅ → 值得做)
+3. Phase B: 类型选择 → Skill（纯指令）
+4. Call `/create-skill auto-organize-downloads "Organizes ~/Downloads by file type"`
+5. Guide user to fill content → `/adapt` → `/validate-skill` → `/resource-birth`
+
+### Example 2: Validating an Extension After Edit
+
+**User**: edits `src/my-extension.ts` in pi-capabilities
+
+**Agent action** (automatic, via tool-result hook):
+1. Detect .ts file write → run validate_extension + adapt_resource
+2. If issues found: send follow-up user message listing problems
+3. If clean: silent (no news is good news)
+
+### Example 3: Checking Upstream Drift
+
+**User**: "我 fork 的 ponytail skill 上游有更新吗"
+
+**Agent action**:
+1. Run `./_tools/check-upstream.sh ponytail` from pi-capabilities
+2. Compare local SKILL.md vs upstream
+3. Report: "Has local modifications" or "Up-to-date"
+4. If drifted, suggest diff and optional merge
 
 ## References
 

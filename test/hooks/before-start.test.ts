@@ -23,7 +23,8 @@ describe("generateHealthNotice", () => {
       upstreamDrift: [],
       adaptFailCount: 0,
     });
-    expect(result).toBeNull();
+    expect(result).toBeTruthy();
+    expect(result).toContain("pi-artisan");
   });
 
   it("reports stale resources", () => {

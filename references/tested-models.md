@@ -1,0 +1,3 @@
+- deepseek-v4-flash: verified
+- deepseek-v4-pro: not tested
+- claude-sonnet-4: not tested
