@@ -76,6 +76,44 @@ function parseUpstream(filePath: string): UpstreamInfo | null {
   }
 }
 
+/** Parse deprecated fields from a SKILL.md file's frontmatter. */
+function parseSkillDeprecated(filePath: string): { deprecated: boolean; reason: string | null; at: string | null } | null {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const fm = parseFrontmatter(content);
+    if (!fm) return null;
+    const match = fm.match(/^deprecated:\s*(.+)$/m);
+    if (!match) return { deprecated: false, reason: null, at: null };
+    const val = match[1].trim().toLowerCase();
+    if (val !== "true" && val !== "yes") return { deprecated: false, reason: null, at: null };
+    const reasonMatch = fm.match(/^deprecated_reason:\s*(.+)$/m);
+    const atMatch = fm.match(/^deprecated_at:\s*(.+)$/m);
+    return {
+      deprecated: true,
+      reason: reasonMatch ? reasonMatch[1].trim().replace(/^["']|["']$/g, "") : null,
+      at: atMatch ? atMatch[1].trim() : new Date().toISOString().slice(0, 10),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Read .deprecated marker file for non-skill types. */
+function readDeprecatedMarker(resourcePath: string): { reason: string | null; at: string | null } | null {
+  const markerPath = resourcePath + ".deprecated";
+  try {
+    if (!existsSync(markerPath)) return null;
+    const raw = readFileSync(markerPath, "utf-8");
+    const data = JSON.parse(raw);
+    return {
+      reason: data.reason || null,
+      at: data.at || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Compute status from mtime. */
 function computeStatus(mtime: Date): "active" | "stale" | "archived" {
   const days = (Date.now() - mtime.getTime()) / 86400000;
@@ -91,12 +129,15 @@ function scanSkills(): ResourceInfo[] {
   if (!existsSync(dir)) return [];
   const results: ResourceInfo[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    // Follow symlinks: statSync resolves targets, lstat on Dirent does not
+    const isDir = entry.isDirectory() || entry.isSymbolicLink();
+    if (!isDir) continue;
     const skillDir = join(dir, entry.name);
     const skillMd = join(skillDir, "SKILL.md");
     if (!existsSync(skillMd)) continue;
     const st = statSync(skillMd);
     const manifestSource = getManifestSource(entry.name);
+    const dep = parseSkillDeprecated(skillMd);
     results.push({
       type: "skill",
       name: entry.name,
@@ -108,6 +149,9 @@ function scanSkills(): ResourceInfo[] {
       qualityScore: null,
       status: computeStatus(st.mtime),
       upstream: parseUpstream(skillMd),
+      deprecated: dep?.deprecated || null,
+      deprecatedReason: dep?.reason || null,
+      deprecatedAt: dep?.at || null,
     });
   }
   return results;
@@ -121,6 +165,7 @@ function scanExtensions(): ResourceInfo[] {
     if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
     const filePath = join(dir, entry.name);
     const st = statSync(filePath);
+    const dep = readDeprecatedMarker(filePath);
     results.push({
       type: "extension",
       name: basename(entry.name, ".ts"),
@@ -131,6 +176,9 @@ function scanExtensions(): ResourceInfo[] {
       lastModified: st.mtime.toISOString(),
       qualityScore: null,
       status: computeStatus(st.mtime),
+      deprecated: dep !== null ? true : null,
+      deprecatedReason: dep?.reason || null,
+      deprecatedAt: dep?.at || null,
     });
   }
   return results;
@@ -144,6 +192,7 @@ function scanPrompts(): ResourceInfo[] {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const filePath = join(dir, entry.name);
     const st = statSync(filePath);
+    const dep = readDeprecatedMarker(filePath);
     results.push({
       type: "prompt",
       name: basename(entry.name, ".md"),
@@ -154,6 +203,9 @@ function scanPrompts(): ResourceInfo[] {
       lastModified: st.mtime.toISOString(),
       qualityScore: null,
       status: computeStatus(st.mtime),
+      deprecated: dep !== null ? true : null,
+      deprecatedReason: dep?.reason || null,
+      deprecatedAt: dep?.at || null,
     });
   }
   return results;
@@ -167,6 +219,7 @@ function scanThemes(): ResourceInfo[] {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const filePath = join(dir, entry.name);
     const st = statSync(filePath);
+    const dep = readDeprecatedMarker(filePath);
     results.push({
       type: "theme",
       name: basename(entry.name, ".json"),
@@ -177,6 +230,9 @@ function scanThemes(): ResourceInfo[] {
       lastModified: st.mtime.toISOString(),
       qualityScore: null,
       status: computeStatus(st.mtime),
+      deprecated: dep !== null ? true : null,
+      deprecatedReason: dep?.reason || null,
+      deprecatedAt: dep?.at || null,
     });
   }
   return results;
@@ -205,26 +261,56 @@ function resolvePkgName(entry: string): string {
   }
 }
 
+function resolvePkgDir(entry: string): string {
+  // Local paths
+  if (entry.startsWith(".") || entry.startsWith("/") || entry.startsWith("~")) {
+    return entry.startsWith("~")
+      ? join(HOME, entry.slice(1))
+      : join(dirname(SETTINGS_PATH), entry);
+  }
+  // npm:<name> → local node_modules
+  const npmMatch = entry.match(/^npm:(@?[^/]+(?:\/[^/]+)?)$/);
+  if (npmMatch) {
+    return join(HOME, ".pi/agent/npm/node_modules", npmMatch[1]);
+  }
+  // git:<host>/<user>/<repo>[.git] → local git clone
+  const gitMatch = entry.match(/^git:([^/]+\/[^/]+\/[^/.]+(?:\.[^/]+)?)/);
+  if (gitMatch) {
+    return join(HOME, ".pi/agent/git", gitMatch[1].replace(/\.git$/, ""));
+  }
+  return entry;
+}
+
 function scanPackages(): ResourceInfo[] {
   if (!existsSync(SETTINGS_PATH)) return [];
   try {
     const settings: SettingsJson = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
     const pkgs = settings.packages || [];
     return pkgs.map((pkg) => {
-      const rawName = typeof pkg === "string" ? pkg : pkg.name || "unknown";
+      const rawName = typeof pkg === "string" ? pkg : (pkg.source || pkg.name || "unknown");
       // ponytail: local path packages resolve their real name from package.json
       const name = resolvePkgName(rawName);
-      const source = typeof pkg === "object" && pkg.source ? pkg.source : "npm";
+      const resolvedDir = resolvePkgDir(rawName);
+      // Determine source: git:// or git: prefix → git, npm: prefix → npm, object with source → that source, local path → local, default → unknown
+      const source = typeof pkg === "object" && pkg.source
+        ? pkg.source
+        : /^git:/.test(rawName) ? "git"
+        : /^npm:/.test(rawName) ? "npm"
+        : rawName.startsWith(".") || rawName.startsWith("/") || rawName.startsWith("~") ? "local"
+        : "unknown";
       return {
         type: "package" as ResourceType,
         name,
-        path: rawName,
+        path: resolvedDir,
         version: null,
         author: null,
         source,
         lastModified: new Date().toISOString(),
         qualityScore: null,
         status: "active" as const,
+        deprecated: null,
+        deprecatedReason: null,
+        deprecatedAt: null,
       };
     });
   } catch {

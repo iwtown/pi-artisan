@@ -9,6 +9,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { checkAging } from "../catalog/aging.js";
 import { checkVersions, determineVersionSource } from "../catalog/version.js";
+import { getOverdueChecks } from "../catalog/observations.js";
 import { formatMaintainReport, type ObservationDisplay } from "../catalog/report.js";
 
 export function registerResourceMaintain(pi: ExtensionAPI): void {
@@ -63,7 +64,16 @@ export function registerResourceMaintain(pi: ExtensionAPI): void {
           source: v.upstream?.source || "?",
         }));
 
-      const report = formatMaintainReport(staleEntries, outdatedEntries, observations, upstreamEntries);
+      const overdue = getOverdueChecks();
+      let report = formatMaintainReport(staleEntries, outdatedEntries, observations, upstreamEntries);
+      if (overdue.length > 0) {
+        report = report.replace(
+          /\u2514.*\u2518/,
+          `\u2502 \u23f0 ${overdue.length} \u4e2a\u8d44\u6e90\u9700\u8981\u56de\u8bbf\u68c0\u67e5\uff1a\n` +
+            overdue.map((o) => `\u2502    ${o.slug} (\u4e0a\u6b21\u53d1\u5e03: ${o.publishedVersion}, \u5e94\u56de\u8bbf: ${o.nextCheckDate.slice(0, 10)})`).join("\n") +
+            `\n\u2514${"\u2500".repeat(50)}\u2518`
+        );
+      }
       ctx.ui?.notify(report, "info");
       ctx.ui?.setWidget("resource-maintain", report.split("\n"));
 

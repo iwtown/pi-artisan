@@ -7,7 +7,7 @@ license: MIT
 tags: [pi-artisan, capability-management, quality-gate, adapter, validator]
 tested-models: [deepseek-v4-flash]
 trigger: 能力包, skill, extension, 扩展, prompt, 提示词, theme, 主题, package, 包, artisan, 工坊, 质量管理, 适配, 校验, 发布
-disable-model-invocation: false
+disable-model-invocation: true
 ---
 
 # pi-artisan — 能力包管理工坊

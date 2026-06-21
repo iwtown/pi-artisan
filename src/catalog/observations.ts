@@ -7,12 +7,15 @@
  * Storage: ~/.pi/agent/pi-artisan-observations.json
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { SkillObservation } from "../types.js";
 
 const HOME = process.env.HOME || "/home/wtown";
 const OBS_PATH = join(HOME, ".pi", "agent", "pi-artisan-observations.json");
+
+/** Days until the next check is due after publishing */
+const DAYS_BETWEEN_CHECKS = 90;
 
 interface ObservationsFile {
   version: "1";
@@ -41,7 +44,10 @@ function saveAll(data: ObservationsFile): void {
   try {
     const dir = OBS_PATH.replace(/\/[^/]+$/, "");
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(OBS_PATH, JSON.stringify(data, null, 2), "utf-8");
+    // Atomic write: write to temp then rename to prevent partial writes on crash
+    const tmpPath = OBS_PATH + ".tmp." + process.pid;
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+    renameSync(tmpPath, OBS_PATH);
   } catch {
     // silent fail — non-critical metadata
   }
@@ -53,16 +59,19 @@ function saveAll(data: ObservationsFile): void {
 export function recordObservation(slug: string, version: string): void {
   const data = loadAll();
   const existing = data.entries.find((e) => e.slug === slug);
+  const now = new Date();
+  const nextCheck = new Date(now.getTime() + DAYS_BETWEEN_CHECKS * 86400000).toISOString();
   if (existing) {
-    existing.publishedAt = new Date().toISOString();
+    existing.publishedAt = now.toISOString();
     existing.publishedVersion = version;
+    existing.nextCheckDate = nextCheck;
   } else {
     data.entries.push({
       slug,
-      publishedAt: new Date().toISOString(),
+      publishedAt: now.toISOString(),
       publishedVersion: version,
       competitors: [],
-      nextCheckDate: null,
+      nextCheckDate: nextCheck,
     });
   }
   saveAll(data);
@@ -95,4 +104,22 @@ export function getAllObservations(): SkillObservation[] {
     nextCheckDate: e.nextCheckDate,
     _slug: e.slug, // internal only
   })) as SkillObservation[] & { _slug?: string }[];
+}
+
+/**
+ * Get entries where the next check date is overdue.
+ */
+export function getOverdueChecks(): { slug: string; publishedAt: string; publishedVersion: string; nextCheckDate: string }[] {
+  const data = loadAll();
+  const now = new Date();
+  return data.entries
+    .filter((e): e is ObservationEntry & { nextCheckDate: string } =>
+      e.nextCheckDate !== null && new Date(e.nextCheckDate) < now
+    )
+    .map((e) => ({
+      slug: e.slug,
+      publishedAt: e.publishedAt,
+      publishedVersion: e.publishedVersion,
+      nextCheckDate: e.nextCheckDate!,
+    }));
 }

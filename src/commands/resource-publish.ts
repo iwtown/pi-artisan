@@ -6,6 +6,7 @@
  *   /resource-publish skill <path> --dry-run      — validate only, no upload
  *   /resource-publish skill <path> --version 1.1.0 — override version
  *   /resource-publish skill <path> --changelog "fix: ..."  — changelog
+ *   /resource-publish skill <path> --deploy         — auto-deploy to Gitee after publish
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,6 +16,7 @@ import { validateSkill } from "../validators/skill.js";
 import { execSync } from "node:child_process";
 import { recordObservation } from "../catalog/observations.js";
 import { runBirthCert } from "../birth/runner.js";
+import { deploySkillToGitee } from "../tools/git-deploy.js";
 
 export function registerResourcePublish(pi: ExtensionAPI): void {
   pi.registerCommand("resource-publish", {
@@ -25,6 +27,7 @@ export function registerResourcePublish(pi: ExtensionAPI): void {
       // Parse flags
       const isDryRun = parts.includes("--dry-run");
       const isForce = parts.includes("--force");
+      const isAutoDeploy = parts.includes("--deploy");
       const versionIdx = parts.indexOf("--version");
       const version = versionIdx >= 0 && versionIdx + 1 < parts.length ? parts[versionIdx + 1] : null;
       const changelogIdx = parts.indexOf("--changelog");
@@ -109,19 +112,19 @@ ${failedItems.join("\n")}`, "warning");
         const out = execSync(cmd, { timeout: 30000, encoding: "utf-8" });
         ctx.ui?.notify(out.trim(), "info");
 
-        if (!isDryRun) {
-          // Extract version for observation record
-          let pubVersion = version || "";
-          if (!pubVersion) {
-            try {
-              const content = readFileSync(skillMdPath, "utf-8");
-              const m = content.match(/^version:\s*(.+)$/m);
-              if (m) pubVersion = m[1].trim();
-            } catch { /* skip */ }
-          }
+        // Extract version and slug for later use (populated before widget)
+        let pubVersion = version || "";
+        if (!pubVersion) {
+          try {
+            const content = readFileSync(skillMdPath, "utf-8");
+            const m = content.match(/^version:\s*(.+)$/m);
+            if (m) pubVersion = m[1].trim();
+          } catch { /* skip */ }
+        }
+        const slug = skillMdPath.replace(/\/SKILL\.md$/, "").split("/").pop() || "skill";
 
+        if (!isDryRun) {
           // Record observation (回炉清单)
-          const slug = skillMdPath.replace(/\/SKILL\.md$/, "").split("/").pop() || "skill";
           recordObservation(slug, pubVersion || "1.0.0");
 
           // Record published_at in SKILL.md frontmatter
@@ -144,6 +147,17 @@ ${failedItems.join("\n")}`, "warning");
           changelog ? `  changelog: ${changelog}` : "",
           isDryRun ? "  使用 --dry-run 移除可真正发布" : "",
         ].filter(Boolean));
+
+        // Step 5: Offer deploy to Gitee (only after real publish, not dry-run)
+        if (!isDryRun) {
+          const shouldDeploy = isAutoDeploy || await ctx.ui?.confirm("🚀 部署", `✅ 发布成功。是否部署到 Gitee pi-capabilities?`);
+          if (shouldDeploy) {
+            ctx.ui?.notify("📦 正在部署到 Gitee pi-capabilities…", "info");
+            const result = deploySkillToGitee({ path: publishDir, message: `feat: publish ${slug} v${pubVersion || "1.0.0"}` });
+            const deployMsg = result.content.map((c: any) => c.text).join("\n");
+            ctx.ui?.notify(deployMsg, "info");
+          }
+        }
       } catch (e: any) {
         ctx.ui?.notify(`❌ ${isDryRun ? "预检" : "发布"}失败: ${e.message}`, "error");
         ctx.ui?.setWidget("resource-publish", [

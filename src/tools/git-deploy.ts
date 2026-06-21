@@ -10,7 +10,7 @@
  *   - SKILL.md frontmatter `name` field
  */
 
-import { existsSync, mkdirSync, cpSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, cpSync, rmSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { homedir } from "node:os";
@@ -18,6 +18,16 @@ import { Type } from "typebox";
 
 const CAPABILITIES_DIR = join(homedir(), "projects", "pi-capabilities");
 const SKILLS_DIR = join(CAPABILITIES_DIR, "skills");
+
+export type DeployableType = "skill" | "extension" | "prompt" | "theme" | "package";
+
+export const TYPE_DIR_MAP: Record<DeployableType, string> = {
+  skill: "skills",
+  extension: "extensions",
+  prompt: "prompts",
+  theme: "themes",
+  package: "packages",
+};
 
 interface DeployParams {
   path: string;
@@ -78,6 +88,160 @@ function copyContents(src: string, dest: string): void {
     if (existsSync(d)) rmSync(d, { recursive: true });
     cpSync(s, d, { recursive: true });
   }
+}
+
+/**
+ * Revert a previous deploy commit in the pi-capabilities repository.
+ */
+export function revertDeploy(hash: string): DeployResult {
+  if (!hash || !/^[a-f0-9]{4,40}$/i.test(hash)) {
+    return fail(`Invalid commit hash: "${hash}". Expected a git hash (hex string).`);
+  }
+  if (!existsSync(join(CAPABILITIES_DIR, ".git"))) {
+    return fail(`pi-capabilities repo not found at ${CAPABILITIES_DIR}`);
+  }
+  try {
+    execSync(`git revert --no-edit ${hash}`, { cwd: CAPABILITIES_DIR, stdio: "pipe", timeout: 30000 });
+    execSync(`git push`, { cwd: CAPABILITIES_DIR, stdio: "pipe", timeout: 60000 });
+    return ok(`✅ 已回滚提交 ${hash} 并推送到 Gitee`, { hash, reverted: true, pushed: true });
+  } catch (e: any) {
+    return fail(`Revert failed: ${e.message}`);
+  }
+}
+
+/**
+ * Show last 5 deploy commits in the pi-capabilities repository.
+ */
+export function listDeploys(): DeployResult {
+  if (!existsSync(join(CAPABILITIES_DIR, ".git"))) {
+    return fail(`pi-capabilities repo not found at ${CAPABILITIES_DIR}`);
+  }
+  try {
+    const log = execSync(`git log --oneline -5`, { cwd: CAPABILITIES_DIR, encoding: "utf-8", stdio: "pipe" }).trim();
+    return ok(log || "(no commits)", { log });
+  } catch (e: any) {
+    return fail(`Git log failed: ${e.message}`);
+  }
+}
+
+/**
+ * Check that the pi-capabilities repo exists and is a git repo.
+ */
+function checkRepo(): string | null {
+  if (!existsSync(CAPABILITIES_DIR)) {
+    return `pi-capabilities repo not found at ${CAPABILITIES_DIR}. Clone it first:\n  git clone https://gitee.com/wtown/pi-capabilities.git ${CAPABILITIES_DIR}`;
+  }
+  if (!existsSync(join(CAPABILITIES_DIR, ".git"))) {
+    return `${CAPABILITIES_DIR} is not a git repository`;
+  }
+  return null;
+}
+
+/**
+ * Deploy any resource type to pi-capabilities Gitee repo.
+ *
+ * type: skill | extension | prompt | theme | package
+ * sourcePath: path to the resource file or directory
+ * options.message: optional custom commit message
+ * options.link: symlink to runtime (skill only, ignored for other types)
+ */
+export function deployToGitee(
+  type: DeployableType,
+  sourcePath: string,
+  options?: { message?: string; link?: boolean }
+): DeployResult {
+  const repoErr = checkRepo();
+  if (repoErr) return fail(repoErr);
+
+  const subDir = TYPE_DIR_MAP[type];
+  if (!subDir) return fail(`Unknown resource type: "${type}". Use skill/extension/prompt/theme/package.`);
+
+  // Resolve source path
+  let src = sourcePath.replace(/\/+$/, "");
+  if (!existsSync(src)) return fail(`Source not found at ${src}`);
+
+  const isDir = statSync(src).isDirectory();
+  const basename = src.split("/").pop() || "";
+
+  // Determine target path and name
+  let targetPath: string;
+  let gitPath: string;
+  let resourceName: string;
+
+  if (type === "prompt" || type === "theme") {
+    // Single file types: prompts/<name>.md, themes/<name>.json
+    if (isDir) return fail(`${type} must be a single file (.${type === "prompt" ? "md" : "json"}), not a directory`);
+    targetPath = join(CAPABILITIES_DIR, subDir, basename);
+    gitPath = `${subDir}/${basename}`;
+    resourceName = basename.replace(/\.(md|json)$/, "");
+    mkdirSync(join(CAPABILITIES_DIR, subDir), { recursive: true });
+    cpSync(src, targetPath);
+  } else if (type === "extension") {
+    // Can be single .ts file or a directory
+    if (!isDir) {
+      targetPath = join(CAPABILITIES_DIR, subDir, basename);
+      gitPath = `${subDir}/${basename}`;
+      resourceName = basename.replace(/\.ts$/, "");
+      mkdirSync(join(CAPABILITIES_DIR, subDir), { recursive: true });
+      cpSync(src, targetPath);
+    } else {
+      resourceName = basename;
+      targetPath = join(CAPABILITIES_DIR, subDir, resourceName);
+      gitPath = `${subDir}/${resourceName}/`;
+      copyContents(src, targetPath);
+    }
+  } else {
+    // Directory types: skill, package
+    if (!isDir) return fail(`${type} must be a directory, not a single file`);
+    resourceName = basename;
+    targetPath = join(CAPABILITIES_DIR, subDir, resourceName);
+    gitPath = `${subDir}/${resourceName}/`;
+    copyContents(src, targetPath);
+  }
+
+  // git add + commit
+  const commitMsg = options?.message || `feat: add ${type} ${resourceName}`;
+  let committed = false;
+  try {
+    execSync(`git add ${gitPath}`, { cwd: CAPABILITIES_DIR, stdio: "pipe" });
+    execSync(`git commit -m "${commitMsg}"`, { cwd: CAPABILITIES_DIR, stdio: "pipe" });
+    committed = true;
+  } catch {
+    // ponytail: no changes to commit (already up to date)
+  }
+
+  // git push
+  let pushed = false;
+  if (committed) {
+    try {
+      execSync(`git push`, { cwd: CAPABILITIES_DIR, stdio: "pipe", timeout: 60000 });
+      pushed = true;
+    } catch (e: any) {
+      return fail(`Git push failed: ${e.message}\nTry: cd ~/projects/pi-capabilities && git pull --rebase && git push`);
+    }
+  }
+
+  // Build result
+  const lines: string[] = [`✅ ${resourceName} (${type}) 已部署到 pi-capabilities`];
+  lines.push(`  ${subDir}/${type === "prompt" || (type === "extension" && !isDir) || type === "theme" ? basename : resourceName + "/"}`);
+
+  if (committed) {
+    const hash = execSync(`git rev-parse --short HEAD`, { cwd: CAPABILITIES_DIR, encoding: "utf-8" }).trim();
+    lines.push(`  提交: ${hash}`);
+    lines.push(`  消息: ${commitMsg}`);
+  } else {
+    lines.push(`  无变更 — 内容与仓库一致`);
+  }
+
+  if (pushed) lines.push(`  已推送到 Gitee`);
+
+  return ok(lines.join("\n"), {
+    resourceName,
+    type,
+    targetPath,
+    committed,
+    pushed,
+  });
 }
 
 /**
@@ -194,5 +358,22 @@ export const skillGitDeployTool = {
   }),
   execute: (_id: string, params: { path: string; message?: string; link?: boolean }) => {
     return Promise.resolve(deploySkillToGitee(params));
+  },
+};
+
+/**
+ * Tool definition for generic resource deploy (all 5 types).
+ */
+export const resourceGitDeployTool = {
+  name: "resource_git_deploy",
+  label: "Resource Git Deploy",
+  description: "Deploy any resource type (skill/extension/prompt/theme/package) to Gitee pi-capabilities repository. Copies file(s) to the correct subdirectory, git add/commit/push.",
+  parameters: Type.Object({
+    type: Type.String({ description: "Resource type: skill/extension/prompt/theme/package" }),
+    path: Type.String({ description: "Path to resource file or directory" }),
+    message: Type.Optional(Type.String({ description: "Custom commit message" })),
+  }),
+  execute: (_id: string, params: { type: string; path: string; message?: string }) => {
+    return Promise.resolve(deployToGitee(params.type as any, params.path, { message: params.message }));
   },
 };

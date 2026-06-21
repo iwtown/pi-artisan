@@ -68,6 +68,12 @@ export interface ResourceInfo {
   status: "active" | "stale" | "archived";
   /** Upstream source declaration (optional, for forked resources) */
   upstream?: UpstreamInfo | null;
+  /** Whether this resource is deprecated (marked via retire command) */
+  deprecated?: boolean | null;
+  /** Reason for deprecation (from frontmatter or .deprecated marker) */
+  deprecatedReason?: string | null;
+  /** ISO date when this resource was deprecated */
+  deprecatedAt?: string | null;
 }
 
 export interface QualityScore {

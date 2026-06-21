@@ -72,6 +72,25 @@ function checkFrontmatterField(skillDir: string, field: string): string | null {
 }
 
 /**
+ * 尝试读取 skill 的 SKILL.md 内容
+ */
+function tryReadSkillMd(r: ResourceInfo): string | null {
+  try {
+    const mdPath = r.path.endsWith("SKILL.md") ? r.path : join(r.path, "SKILL.md");
+    return existsSync(mdPath) ? readFileSync(mdPath, "utf-8") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 生成一个跳过的规则结果（文件缺失时用）
+ */
+function skip(r: ResourceInfo, ruleId: string) {
+  return { ruleId, resource: r.name, passed: true, severity: "info" as const, message: "⏭️ 未读取到 SKILL.md", autoFixable: false };
+}
+
+/**
  * 检查 name 字段格式是否合规
  */
 function checkNameFormat(name: string): boolean {
@@ -258,6 +277,78 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
     };
   },
 
+  // ── B3: Security — 安全红牌扫描 ──
+  "skill-sec-curl-ip": (r) => {
+    const content = tryReadSkillMd(r);
+    if (!content) return skip(r, "skill-sec-curl-ip");
+    const ipPattern = /(?:curl|wget)\s+https?:\/\/(?:\d{1,3}\.){3}\d{1,3}\b/;
+    const found = content.match(ipPattern);
+    return {
+      ruleId: "skill-sec-curl-ip",
+      resource: r.name,
+      passed: !found,
+      severity: "warning",
+      message: found ? `⚠️ curl/wget 指向 IP 地址: ${found[0].trim().slice(0, 60)}` : "✅ 无 IP 直连调用",
+      autoFixable: false,
+    };
+  },
+  "skill-sec-credential": (r) => {
+    const content = tryReadSkillMd(r);
+    if (!content) return skip(r, "skill-sec-credential");
+    const credPattern = /[~"'']\/\.(?:ssh|aws|kube|netrc)\b|\.credentials?\/|CREDENTIAL|credential_file/i;
+    const found = credPattern.test(content);
+    return {
+      ruleId: "skill-sec-credential",
+      resource: r.name,
+      passed: !found,
+      severity: "warning",
+      message: found ? "⚠️ 访问敏感路径（~/.ssh, ~/.aws 等）" : "✅ 无敏感路径访问",
+      autoFixable: false,
+    };
+  },
+  "skill-sec-base64": (r) => {
+    const content = tryReadSkillMd(r);
+    if (!content) return skip(r, "skill-sec-base64");
+    const b64Pattern = /(?:base64|from\s+base64).*(?:decode|d\s*-)/i;
+    const found = b64Pattern.test(content);
+    return {
+      ruleId: "skill-sec-base64",
+      resource: r.name,
+      passed: !found,
+      severity: "warning",
+      message: found ? "⚠️ 包含 base64 解码操作（代码混淆风险）" : "✅ 无 base64 解码",
+      autoFixable: false,
+    };
+  },
+  "skill-sec-eval": (r) => {
+    const content = tryReadSkillMd(r);
+    if (!content) return skip(r, "skill-sec-eval");
+    const evalPattern = /\b(?:eval|exec)\s*\(/;
+    const found = evalPattern.test(content);
+    return {
+      ruleId: "skill-sec-eval",
+      resource: r.name,
+      passed: !found,
+      severity: "warning",
+      message: found ? "⚠️ 使用 eval/exec 执行动态代码" : "✅ 无 eval/exec 调用",
+      autoFixable: false,
+    };
+  },
+  "skill-sec-sudo": (r) => {
+    const content = tryReadSkillMd(r);
+    if (!content) return skip(r, "skill-sec-sudo");
+    const sudoPattern = /\bsudo\s+/;
+    const found = sudoPattern.test(content);
+    return {
+      ruleId: "skill-sec-sudo",
+      resource: r.name,
+      passed: !found,
+      severity: "info",
+      message: found ? "💡 包含 sudo 命令，需确认提权必要性" : "✅ 无 sudo 提权",
+      autoFixable: false,
+    };
+  },
+
   // ── Extension ──
   "ext-export-default": (r) => {
     const extPath = r.path.endsWith("index.ts") ? r.path : r.path;
@@ -299,16 +390,25 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
     const content = readFileSync(extPath, "utf-8");
     const toolNames = [...content.matchAll(/name:\s*["']([a-z_]\w*)["']/g)].map((m) => m[1]);
     const bad = toolNames.filter((n) => !/^[a-z][a-z0-9_]*$/.test(n));
+    const noPrefix = toolNames.length > 0 && toolNames.every((n) => !n.includes("_"));
+
+    let message: string;
+    if (bad.length > 0) {
+      message = `⚠️ 工具名 "${bad.join(", ")}" 建议用 snake_case`;
+    } else if (noPrefix) {
+      message = `⚠️ 工具名 "${toolNames[0]}" 建议用 namespace_prefix 格式 (如 my-ext_${toolNames[0]})`;
+    } else if (toolNames.length > 0) {
+      message = `✅ 工具名含 namespace prefix (${toolNames.join(", ")})`;
+    } else {
+      message = "✅ 无自定义工具（或未检测到）";
+    }
+
     return {
       ruleId: "ext-tool-naming",
       resource: r.name,
-      passed: bad.length === 0,
+      passed: bad.length === 0 && !noPrefix,
       severity: "warning",
-      message: bad.length > 0
-        ? `⚠️ 工具名 "${bad.join(", ")}" 建议用 snake_case`
-        : toolNames.length > 0
-          ? `✅ 工具名 snake_case (${toolNames.join(", ")})`
-          : "✅ 无自定义工具（或未检测到）",
+      message,
       autoFixable: false,
     };
   },
@@ -490,19 +590,26 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
   "pkg-package-json": (r) => {
     const pkgPath = join(r.path, "package.json");
     const exists = existsSync(pkgPath);
+    // git-sourced packages without package.json are runtime dependencies (e.g. x-cmd), not Pi packages
+    const isGitRuntime = r.source === "git" && !exists;
     return {
       ruleId: "pkg-package-json",
       resource: r.name,
-      passed: exists,
-      severity: "critical",
-      message: exists ? "✅ package.json 存在" : "❌ 缺少 package.json",
+      passed: exists || isGitRuntime,
+      severity: isGitRuntime ? "info" : "critical",
+      message: exists
+        ? "✅ package.json 存在"
+        : isGitRuntime
+          ? "💡 git 运行时依赖，非 Pi Package，跳过 package 检查"
+          : "❌ 缺少 package.json",
       autoFixable: false,
     };
   },
   "pkg-pi-manifest": (r) => {
     const pkgPath = join(r.path, "package.json");
     if (!existsSync(pkgPath)) {
-      return { ruleId: "pkg-pi-manifest", resource: r.name, passed: false, severity: "info", message: "💡 建议加 pi 清单", autoFixable: false };
+      const isGitRuntime = r.source === "git";
+      return { ruleId: "pkg-pi-manifest", resource: r.name, passed: isGitRuntime, severity: "info", message: isGitRuntime ? "💡 git 运行时依赖，非 Pi Package" : "💡 建议加 pi 清单", autoFixable: false };
     }
     try {
       const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
@@ -522,7 +629,8 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
   "pkg-keyword": (r) => {
     const pkgPath = join(r.path, "package.json");
     if (!existsSync(pkgPath)) {
-      return { ruleId: "pkg-keyword", resource: r.name, passed: false, severity: "info", message: "💡 建议加 pi-package 关键词", autoFixable: false };
+      const isGitRuntime = r.source === "git";
+      return { ruleId: "pkg-keyword", resource: r.name, passed: isGitRuntime, severity: "info", message: isGitRuntime ? "💡 git 运行时依赖，非 Pi Package" : "💡 建议加 pi-package 关键词", autoFixable: false };
     }
     try {
       const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
@@ -542,7 +650,7 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
   "pkg-pi-manifest-keys": (r) => {
     const ALLOWED = ["extensions", "skills", "prompts", "themes", "video", "image"];
     const pkgPath = join(r.path, "package.json");
-    if (!existsSync(pkgPath)) { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+    if (!existsSync(pkgPath)) { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "info", message: r.source === "git" ? "💡 git 运行时依赖，非 Pi Package" : "💡 无法检查", autoFixable: false }; }
     try {
       const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
       if (!json.pi) { return { ruleId: "pkg-pi-manifest-keys", resource: r.name, passed: true, severity: "info", message: "💡 无 pi 清单", autoFixable: false }; }
@@ -558,7 +666,7 @@ const RULE_CHECKERS: Record<string, RuleChecker> = {
   },
   "pkg-peer-deps": (r) => {
     const pkgPath = join(r.path, "package.json");
-    if (!existsSync(pkgPath)) { return { ruleId: "pkg-peer-deps", resource: r.name, passed: true, severity: "info", message: "💡 无法检查", autoFixable: false }; }
+    if (!existsSync(pkgPath)) { return { ruleId: "pkg-peer-deps", resource: r.name, passed: true, severity: "info", message: r.source === "git" ? "💡 git 运行时依赖，非 Pi Package" : "💡 无法检查", autoFixable: false }; }
     try {
       const json = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const hasPi = Object.keys(json.peerDependencies || {}).some((k) => k.startsWith("@earendil-works/pi-"));

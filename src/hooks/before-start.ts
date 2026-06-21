@@ -14,11 +14,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { scanResources } from "../catalog/scanner.js";
+import { readFileSync, statSync } from "node:fs";
+import { scanResources, scanByType } from "../catalog/scanner.js";
 import { checkAging } from "../catalog/aging.js";
 import { checkVersions } from "../catalog/version.js";
 import type { AgingInfo, VersionInfo } from "../types.js";
 import { adaptAll } from "../adaptation/engine.js";
+import { checkLifecycleSkills } from "../lifecycle/skills.js";
 
 // ─────────────────────────────────────────────────────────
 //  Pure functions (testable without mocks)
@@ -28,17 +30,35 @@ export interface HealthData {
   totalCount: number;
   skillCount: number;
   staleResources: { name: string; daysSinceUpdate: number }[];
+  staleOnDemand: { name: string; days: number }[];
   outdatedSkills: { name: string; current: string; latest: string }[];
   upstreamDrift: { name: string; current: string; upstream: string; source: string }[];
   adaptFailCount: number;
 }
 
-/**
- * Generate a status notice. Always returns a string with resource overview
- * and any issues found. Returns null only on scan failure.
- */
+/** Extract stale on-demand skills (90d+ no modification) */
+function staleOnDemandSkills(): { name: string; days: number }[] {
+  const STALE_DAYS = 90;
+  const now = Date.now();
+  return scanByType("skill")
+    .filter((s) => {
+      try {
+        const content = readFileSync(s.path, "utf-8");
+        // only on-demand skills
+        return /^disable-model-invocation:\s*true/m.test(content);
+      } catch { return false; }
+    })
+    .map((s) => {
+      try {
+        const mtime = statSync(s.path).mtimeMs;
+        const days = Math.round((now - mtime) / 86400000);
+        return { name: s.name, days };
+      } catch { return { name: s.name, days: 0 }; }
+    })
+    .filter((s) => s.days >= STALE_DAYS);
+}
 export function generateHealthNotice(data: HealthData): string | null {
-  const { totalCount, skillCount, staleResources, outdatedSkills, upstreamDrift } = data;
+  const { totalCount, skillCount, staleResources, staleOnDemand, outdatedSkills, upstreamDrift } = data;
 
   const lines: string[] = [];
   lines.push(`🧰 pi-artisan 工坊巡检`);
@@ -51,6 +71,16 @@ export function generateHealthNotice(data: HealthData): string | null {
     }
     if (staleResources.length > 3) {
       lines.push(`     · ...及其他 ${staleResources.length - 3} 个`);
+    }
+  }
+
+  if (staleOnDemand.length > 0) {
+    lines.push(`   💤 ${staleOnDemand.length} 个按需 skill 可能过时（≥90 天未改动）`);
+    for (const s of staleOnDemand.slice(0, 3)) {
+      lines.push(`     · ${s.name}（${s.days} 天）`);
+    }
+    if (staleOnDemand.length > 3) {
+      lines.push(`     · ...及其他 ${staleOnDemand.length - 3} 个`);
     }
   }
 
@@ -81,35 +111,24 @@ export function generateHealthNotice(data: HealthData): string | null {
   return lines.join("\n");
 }
 
-/**
- * Generate the full pi-artisan context block for system prompt injection.
- * Unlike generateHealthNotice, this ALWAYS returns a string so the agent
- * knows pi-artisan is present and what resources it manages.
- */
+/** Generate minimal workshop context — strips redundant tool list (~910→~360 chars) */
 export function generateWorkshopContext(data: HealthData): string {
   const health = generateHealthNotice(data);
-  const overview = `🧰 pi-artisan 工匠工坊 — 能力包全生命周期管理
-   管理 5 种能力包类型：skills / extensions / prompts / themes / packages
-   当前共 ${data.totalCount} 个能力包（${data.skillCount} 个 skill）
+  // pi-artisan: overview + lifecycle + health (no redundant tool list)
+  const overview = `🧰 pi-artisan — 能力包工坊
+   5 种类型: skills/extensions/prompts/themes/packages
+   ${data.totalCount} 个能力包（${data.skillCount} 个 skill）`;
 
-   你在操作以上类型的能力包时，pi-artisan 会自动介入：
-   · 创建/编辑 → 自动校验 + 适配检查
-   · 发现新资源 → 自动适配检查
-   · 涉及部署/版本管理 → 提示下一步操作
+  const lifecycleSkills = checkLifecycleSkills();
+  const lifecycleLines = lifecycleSkills.map((s) =>
+    s.installed
+      ? `     ✅ ${s.name}`
+      : `     ⚠️ ${s.name} 未安装`
+  );
+  const lifecycleBlock =
+    `\n   🔗 生命周期 skill:\n${lifecycleLines.join("\n")}`;
 
-   常用工具：
-   · /resource-list           — 列出所有资源
-   · /resource-status         — 查看资源质量报告
-   · /resource-maintain       — 老化检测 + 版本追踪
-   · /resource-birth          — 出生证检查（发布前必须通过）
-   · /adapt                   — 适配化改造检查
-   · /validate-skill          — 校验 SKILL.md
-   · /optimize-skill          — 8 维 Rubric 诊断`;
-
-  if (health) {
-    return `${overview}\n\n${health}`;
-  }
-  return overview;
+  return `${overview}${lifecycleBlock}\n\n${health}`;
 }
 
 /**
@@ -148,6 +167,7 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
       // ── 2. Aging check (local, fast) ──
       const aging = checkAging();
       const staleResources = extractStaleResources(aging);
+      const staleOnDemand = staleOnDemandSkills();
 
       // ── 3. Version check (network, 5s timeout) ──
       let outdatedSkills: { name: string; current: string; latest: string }[] = [];
@@ -181,6 +201,7 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         totalCount,
         skillCount,
         staleResources,
+        staleOnDemand,
         outdatedSkills,
         upstreamDrift,
         adaptFailCount,
@@ -191,6 +212,7 @@ export function setupBeforeStartHook(pi: ExtensionAPI): void {
         totalCount,
         skillCount,
         staleResources,
+        staleOnDemand,
         outdatedSkills,
         upstreamDrift,
         adaptFailCount,

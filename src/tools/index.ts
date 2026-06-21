@@ -18,7 +18,13 @@ import type { ValidationIssue, ResourceType } from "../types.js";
 import { scanByType, scanResources, findResource } from "../catalog/scanner.js";
 import { computeQualityScore } from "../catalog/score.js";
 import { generateReport, formatResourceTable } from "../catalog/report.js";
-import { skillGitDeployTool } from "../tools/git-deploy.js";
+import { skillGitDeployTool, resourceGitDeployTool, revertDeploy, listDeploys } from "../tools/git-deploy.js";
+import { acquireSkill } from "../tools/acquire.js";
+import { toggleSkill, listSkillToggles } from "../tools/toggle.js";
+import { upgradeSkill, listUpgradeStatus, upgradeAll, dependencyGraph } from "../tools/upgrade.js";
+import { addRegistryTrigger, removeRegistryTrigger, showRegistry } from "../tools/registry.js";
+import { listRollbacks, rollbackSkill } from "../tools/rollback.js";
+import { recordToggle, recordUpgrade, usageReport } from "../tools/usage.js";
 import { checkAging } from "../catalog/aging.js";
 import { checkVersions } from "../catalog/version.js";
 import { execSync } from "node:child_process";
@@ -301,4 +307,197 @@ export function registerTools(pi: ExtensionAPI): void {
 
   // ── skill_git_deploy tool ──
   pi.registerTool(skillGitDeployTool);
+
+  // ── resource_git_deploy tool ──
+  pi.registerTool(resourceGitDeployTool);
+
+  // ── skill_git_revert tool ──
+  pi.registerTool({
+    name: "skill_git_revert",
+    label: "Skill Git Revert",
+    description: "Revert a previous deploy commit in the pi-capabilities repository by hash, then push. Usage: skill_git_revert --hash <commit-hash>",
+    parameters: Type.Object({
+      hash: Type.String({ description: "Git commit hash to revert (hex string)" }),
+    }),
+    execute: (_id: string, params: { hash: string }) => {
+      return Promise.resolve(revertDeploy(params.hash));
+    },
+  });
+
+  // ── skill_git_deploy_log tool ──
+  pi.registerTool({
+    name: "skill_git_deploy_log",
+    label: "Skill Git Deploy Log",
+    description: "Show last 5 deploy commits in the pi-capabilities repository.",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve(listDeploys());
+    },
+  });
+
+  // ── skill_acquire tool ──
+  pi.registerTool({
+    name: "skill_acquire",
+    label: "Skill Acquire",
+    description: "从外部源（GitHub/Gitee）安装 skill 到 pi-capabilities。自动克隆 + 创建符号链接 + 校验。与 /find-skills 配合使用：发现技能后，用此工具安装。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称（kebab-case，如 'my-skill'）" }),
+      source: Type.String({ description: "源地址。GitHub: 'user/repo' 或完整 URL; Gitee: 完整 URL" }),
+    }),
+    execute: (_id: string, params: { name: string; source: string }) => {
+      const result = acquireSkill(params.name, params.source);
+      return Promise.resolve({ content: [{ type: "text" as const, text: result.message }], details: result as any });
+    },
+  });
+
+  // ── skill_toggle tool ──
+  pi.registerTool({
+    name: "skill_toggle",
+    label: "Skill Toggle",
+    description: "开关 skill 的按需加载状态。不常用的 skill 建议关掉（on=true），使用时再切换回来（on=false）。支持批量切换（多个 name 逗号分隔）。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称，多个用逗号分隔（如 'x-cmd,ponytail'）" }),
+      on: Type.Boolean({ description: "true = 按需加载（关掉），false = 常驻（打开）" }),
+    }),
+    execute: (_id: string, params: { name: string; on: boolean }) => {
+      const names = params.name.split(",").map((n) => n.trim()).filter(Boolean);
+      const results = names.map((n) => {
+        const r = toggleSkill(n, params.on);
+        if (r.changed) recordToggle(n, params.on);
+        return r;
+      });
+      const lines = results.map((r) => r.message);
+      return Promise.resolve({ content: [{ type: "text" as const, text: lines.join("\n") }], details: results as any });
+    },
+  });
+
+  // ── skill_list_toggles tool ──
+  pi.registerTool({
+    name: "skill_list_toggles",
+    label: "Skill List Toggles",
+    description: "列出所有 skill 的按需加载状态（常驻 vs 💤 按需加载）。",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: listSkillToggles() }], details: {} as any });
+    },
+  });
+
+  // ── skill_upgrade tool ──
+  pi.registerTool({
+    name: "skill_upgrade",
+    label: "Skill Upgrade",
+    description: "升级指定 skill 到最新上游版本。自动备份旧版、拉取新版、校验。仅支持 github:/gitee: 源的 skill。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称" }),
+    }),
+    execute: (_id: string, params: { name: string }) => {
+      const result = upgradeSkill(params.name);
+      if (result.upgraded) recordUpgrade(params.name);
+      return Promise.resolve({ content: [{ type: "text" as const, text: result.message }], details: result as any });
+    },
+  });
+
+  // ── skill_upgrade_list tool ──
+  pi.registerTool({
+    name: "skill_upgrade_list",
+    label: "Skill Upgrade List",
+    description: "列出所有带 upstream 追踪的 skill 及其当前版本。",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: listUpgradeStatus() }], details: {} as any });
+    },
+  });
+
+  // ── skill_upgrade_all tool ──
+  pi.registerTool({
+    name: "skill_upgrade_all",
+    label: "Upgrade All Skills",
+    description: "批量升级所有 github:/gitee: 源的 skill 到最新版本。",
+    parameters: Type.Object({}),
+    execute: () => {
+      const msg = upgradeAll();
+      return Promise.resolve({ content: [{ type: "text" as const, text: msg }], details: {} as any });
+    },
+  });
+
+  // ── skill_dependency_graph tool ──
+  pi.registerTool({
+    name: "skill_dependency_graph",
+    label: "Skill Dependency Graph",
+    description: "按上游源分组展示所有 skill 的依赖关系。",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: dependencyGraph() }], details: {} as any });
+    },
+  });
+
+  // ── C4: registry tools ──
+  pi.registerTool({
+    name: "skill_registry_add",
+    label: "Add Registry Trigger",
+    description: "在按需注册表中添加 skill 的触发关键词。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称" }),
+      triggers: Type.Array(Type.String(), { description: "触发词列表" }),
+    }),
+    execute: (_id: string, params: { name: string; triggers: string[] }) => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: addRegistryTrigger(params.name, params.triggers) }], details: {} as any });
+    },
+  });
+  pi.registerTool({
+    name: "skill_registry_remove",
+    label: "Remove Registry Trigger",
+    description: "从按需注册表中移除 skill 的触发关键词。不传 triggers 则移除整条。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称" }),
+      triggers: Type.Optional(Type.Array(Type.String(), { description: "要移除的触发词（可选）" })),
+    }),
+    execute: (_id: string, params: { name: string; triggers?: string[] }) => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: removeRegistryTrigger(params.name, params.triggers) }], details: {} as any });
+    },
+  });
+  pi.registerTool({
+    name: "skill_registry_show",
+    label: "Show Registry",
+    description: "显示按需注册表内容。",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: showRegistry() }], details: {} as any });
+    },
+  });
+
+  // ── C2: rollback tools ──
+  pi.registerTool({
+    name: "skill_rollback",
+    label: "Skill Rollback",
+    description: "回滚 skill 到之前备份的版本。index=0 为最新备份。",
+    parameters: Type.Object({
+      name: Type.String({ description: "Skill 名称" }),
+      index: Type.Optional(Type.Number({ description: "备份索引（0=最新，1=次新…）" })),
+    }),
+    execute: (_id: string, params: { name: string; index?: number }) => {
+      const r = rollbackSkill(params.name, params.index ?? 0);
+      return Promise.resolve({ content: [{ type: "text" as const, text: r.message }], details: r as any });
+    },
+  });
+  pi.registerTool({
+    name: "skill_rollback_list",
+    label: "Skill Rollback List",
+    description: "列出所有 skill 的可用备份。可选 name 参数筛选。",
+    parameters: Type.Object({
+      name: Type.Optional(Type.String({ description: "筛选 skill 名称（可选）" })),
+    }),
+    execute: (_id: string, params: { name?: string }) => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: listRollbacks(params.name) }], details: {} as any });
+    },
+  });
+  pi.registerTool({
+    name: "skill_usage_report",
+    label: "Skill Usage Report",
+    description: "查看所有 skill 的活跃度报告：修改时间、切换次数、过时检测。",
+    parameters: Type.Object({}),
+    execute: () => {
+      return Promise.resolve({ content: [{ type: "text" as const, text: usageReport() }], details: {} as any });
+    },
+  });
 }

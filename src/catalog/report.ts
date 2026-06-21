@@ -26,6 +26,12 @@ export function generateReport(resource: ResourceInfo, score: QualityScore): str
     lines.push(`\u2502 \u2191 upstream: ${us.source} (${upVer}, ${syncLabel}, last: ${lastMerge})`);
   }
 
+  // Deprecated badge
+  if (resource.deprecated) {
+    const reason = resource.deprecatedReason ? `: ${resource.deprecatedReason}` : "";
+    lines.push(`\u2502 \u26a0\ufe0f DEPRECATED${reason}`);
+  }
+
   const dims = score.dimensions;
   const dimKeys = Object.keys(dims);
   if (dimKeys.length > 0) {
@@ -69,7 +75,8 @@ export function formatResourceTable(resources: ResourceInfo[], title: string): s
       : "\u2014";
     const src = r.author || r.source || "\u2014";
     const name = r.name.length > 20 ? r.name.slice(0, 17) + "\u2026" : r.name;
-    lines.push(`\u2502 ${padRight(name, 20)} ${padRight(ver, 8)} ${padRight(score, 12)} ${src}`);
+    const depBadge = r.deprecated ? "⚠️ " : "";
+    lines.push(`\u2502 ${depBadge}${padRight(name, 20)} ${padRight(ver, 8)} ${padRight(score, 12)} ${src}`);
   }
 
   lines.push(`\u2514${"\u2500".repeat(50)}\u2518`);

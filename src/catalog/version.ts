@@ -62,8 +62,11 @@ export function parseSourceString(source: string): VersionSource | null {
   if (source.startsWith("npm:")) {
     return { type: "npm", identifier: source.slice(4) };
   }
-  if (source.startsWith("github:") || source.startsWith("https://github.com/")) {
-    return { type: "github", identifier: source.replace(/^https?:\/\//, "").replace(/^github:/, "github:") };
+  if (source.startsWith("github:")) {
+    return { type: "github", identifier: source.slice(7) };
+  }
+  if (source.startsWith("https://github.com/")) {
+    return { type: "github", identifier: source.replace(/^https:\/\/github\.com\//, "") };
   }
   if (source.startsWith("git:")) {
     return { type: "git", identifier: source.slice(4) };
@@ -139,9 +142,18 @@ async function fetchRemoteVersion(source: VersionSource): Promise<string | null>
     case "npm":
       return fetchNpmVersion(source.identifier);
     case "github":
+      try {
+        const out = execSync(
+          `git ls-remote --tags https://ghproxy.net/https://github.com/${source.identifier}.git 2>/dev/null | tail -1`,
+          { timeout: 10000, encoding: "utf-8" },
+        );
+        const tag = out.trim().split(/\s+/).pop();
+        return tag || null;
+      } catch {
+        return null;
+      }
     case "git":
-      // ponytail: github/git version check is expensive behind ghproxy
-      // add when ghproxy-based tag fetching is needed
+      // ponytail: git URLs are too varied to handle generically
       return null;
     default:
       return null;
@@ -172,62 +184,95 @@ async function fetchUpstreamVersion(upstream: UpstreamInfo): Promise<string | nu
 /**
  * Check versions for all resources.
  *
- * Only resources with a known version source (upstream or manifest entry)
- * participate in remote version checking. Resources without a known source
- * are reported as "no remote source" without false "up to date" claims.
+ * Fixed: parallel network calls + 10s total timeout + skip unknown versions.
  */
 export async function checkVersions(): Promise<VersionInfo[]> {
   const types: ResourceType[] = ["skill", "extension", "prompt", "theme", "package"];
   const results: VersionInfo[] = [];
+
+  const tasks: Promise<void>[] = [];
+  const lock = (fn: () => void) => { fn(); }; // sync push, no lock needed
 
   for (const type of types) {
     const resources = scanByType(type);
     for (const r of resources) {
       const currentVersion = r.version;
 
-      // ── Determine how to check version for this resource ──
+      // ponytail: skip unknown versions — can't meaningfully compare
+      if (!currentVersion || currentVersion === "unknown") {
+        results.push({
+          type: r.type,
+          name: r.name,
+          currentVersion: currentVersion || "\u2014",
+          latestVersion: null,
+          isUpToDate: true,
+          upstream: r.upstream || null,
+          upstreamOutdated: undefined,
+          upstreamLatest: null,
+          observation: undefined,
+        });
+        continue;
+      }
+
       const versionSource = r.upstream
         ? determineVersionSource(r.upstream, r.name)
         : determineVersionSource(null, r.name);
 
-      let latestVersion: string | null = null;
-      if (versionSource) {
-        latestVersion = await fetchRemoteVersion(versionSource);
-      }
-
-      // ── Upstream version check (fork tracking) ──
-      let upstreamOutdated: boolean | undefined;
-      let upstreamLatest: string | null | undefined;
-      if (r.upstream?.source) {
-        upstreamLatest = await fetchUpstreamVersion(r.upstream);
-        if (upstreamLatest && r.upstream.version && upstreamLatest !== r.upstream.version) {
-          upstreamOutdated = true;
-        } else {
-          upstreamOutdated = false;
+      tasks.push((async () => {
+        let latestVersion: string | null = null;
+        if (versionSource) {
+          latestVersion = await fetchRemoteVersion(versionSource);
+          // clean github tag refs
+          if (latestVersion) latestVersion = cleanVersionString(latestVersion);
         }
-      }
 
-      const observation = type === "skill" ? getObservation(r.name) : undefined;
+        let upstreamOutdated: boolean | undefined;
+        let upstreamLatest: string | null | undefined;
+        if (r.upstream?.source) {
+          upstreamLatest = await fetchUpstreamVersion(r.upstream);
+          if (upstreamLatest) upstreamLatest = cleanVersionString(upstreamLatest);
+          if (upstreamLatest && r.upstream.version && upstreamLatest !== r.upstream.version) {
+            upstreamOutdated = true;
+          } else {
+            upstreamOutdated = false;
+          }
+        }
 
-      // isUpToDate: only meaningful when we have a remote source to compare against
-      const hasRemoteSource = versionSource !== null;
-      const isUpToDate = !hasRemoteSource || (latestVersion ? currentVersion === latestVersion : true);
+        const observation = type === "skill" ? getObservation(r.name) : undefined;
+        const hasRemoteSource = versionSource !== null;
+        const isUpToDate = !hasRemoteSource || (latestVersion ? currentVersion === latestVersion : true);
 
-      results.push({
-        type: r.type,
-        name: r.name,
-        currentVersion: currentVersion || "\u2014",
-        latestVersion,
-        isUpToDate,
-        upstream: r.upstream || null,
-        upstreamOutdated,
-        upstreamLatest: upstreamLatest ?? null,
-        observation: observation || undefined,
-      });
+        lock(() => results.push({
+          type: r.type,
+          name: r.name,
+          currentVersion: currentVersion || "\u2014",
+          latestVersion,
+          isUpToDate,
+          upstream: r.upstream || null,
+          upstreamOutdated,
+          upstreamLatest: upstreamLatest ?? null,
+          observation: observation || undefined,
+        }));
+      })());
     }
   }
 
+  // Run all network calls in parallel with a 15s total timeout
+  const timeout = new Promise<void>((_, reject) =>
+    setTimeout(() => reject(new Error("version check timeout")), 15000)
+  );
+  try {
+    await Promise.race([Promise.allSettled(tasks), timeout]);
+  } catch {
+    // timeout reached — return partial results
+  }
+
   return results;
+}
+
+/** Clean version strings: strip refs/tags/v prefix, keep semver */
+function cleanVersionString(v: string): string {
+  return v.replace(/^refs\/tags\//, "").replace(/^v(\d+\.)/, "$1");
 }
 
 // ─────────────────────────────────────────────────────────

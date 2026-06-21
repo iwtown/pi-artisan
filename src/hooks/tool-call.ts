@@ -14,7 +14,10 @@ export function setupToolCallHook(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event: any) => {
     if (event.toolName === "write" || event.toolName === "edit") {
       const filePath = event.input?.path as string;
-      if (filePath) pendingPaths.set(event.toolCallId, filePath);
+      if (filePath) {
+        pendingPaths.set(event.toolCallId, filePath);
+        setTimeout(() => pendingPaths.delete(event.toolCallId), 30000).unref();
+      }
     }
     return undefined;
   });
